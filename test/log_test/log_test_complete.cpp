@@ -10,7 +10,6 @@
 #include <iostream>
 #include <fstream>
 #include <regex>
-#include <unistd.h> // getpid on POSIX
 
 int main() {
     // init logger - base name "testlog"

@@ -6,32 +6,36 @@
 #include "logger.h"
 
 #include <ctime>
+#include <format>
 #include <iostream>
 #include <sys/time.h>
-#include <sstream>
+#include <vector>
 #include <iomanip>
 #include <cstring>
-#include <fstream>       // For modern file stream operations
-#include <memory>        // For std::unique_ptr (RAII resource management)
-#include <ostream>       // For std::ostream interface
+#include <fstream>
+#include <memory>
+#include <ostream>
 
 Logger& Logger::Instance() {
     static Logger inst;
     return inst;
 }
 
-Logger::Logger()
-    : m_buf_size_(8192),
-      m_rotate_bytes_(50 * 1024 * 1024),
-      m_close_log_(0),
-      m_file_stream_(nullptr),  // Replaces FILE* with RAII-managed ofstream
-      m_written_bytes_(0),
-      m_today_(0),
-      m_max_queue_size_(0),
-      m_running_(false),
-      m_is_async_(true),
-      m_output_stream_(nullptr) // Unified interface for file/stderr output
-{}
+Logger::Logger():
+    m_buf_size_(8192),
+    m_rotate_bytes_(50 * 1024 * 1024),
+    m_close_log_(0),
+    m_file_stream_(nullptr),  // Replaces FILE* with RAII-managed ofstream
+    m_written_bytes_(0),
+    m_today_(0),
+    m_max_queue_size_(0),
+    m_running_(false),
+    m_is_async_(true),
+    m_output_stream_(nullptr), // Unified interface for file/stderr output
+    m_batch_flush_threshold_(4096) // 4 KB
+{
+
+}
 
 Logger::~Logger() {
     Shutdown();
@@ -87,18 +91,27 @@ bool Logger::Init(std::string file_name,
 }
 
 void Logger::Shutdown() {
-    // stop worker, flush remaining logs
+    // 停止消费者线程
     if (m_is_async_) {
         m_running_.store(false);
-        m_cv_not_empty_.notify_all();
-        if (m_worker_.joinable()) m_worker_.join();
+        if (m_worker_.joinable()) {
+            m_worker_.join();
+        }
     }
-    // flush and close file (RAII-managed stream replaces manual fclose)
+
+    // 刷空批量缓冲区
     std::lock_guard<std::mutex> lk(m_file_mutex_);
+    if (!m_batch_buf_.empty() && m_output_stream_) {
+        m_output_stream_->write(m_batch_buf_.data(), m_batch_buf_.size());
+        m_written_bytes_ += m_batch_buf_.size();
+        m_batch_buf_.clear();
+    }
+
+    // 关闭文件流
     if (m_file_stream_ && m_file_stream_->is_open()) {
         m_file_stream_->flush();
         m_file_stream_->close();
-        m_file_stream_.reset();  // Automatically releases resources
+        m_file_stream_.reset();
         m_output_stream_ = nullptr;
     }
 }
@@ -144,12 +157,11 @@ std::string Logger::GenerateLogFileName() {
 }
 
 void Logger::RotateIfNeeded() {
-    // called under file mutex by writer
     struct timeval tv {};
     gettimeofday(&tv, nullptr);
     time_t tt = tv.tv_sec;
     struct tm tm_now;
-    localtime_r(&tt, &tm_now);  // Replaced localtime with thread-safe localtime_r (POSIX)
+    localtime_r(&tt, &tm_now);
 
     bool need_rotate = false;
     if (tm_now.tm_mday != m_today_) {
@@ -161,17 +173,22 @@ void Logger::RotateIfNeeded() {
     }
     if (!need_rotate) return;
 
-    // close current, open new with new name
+    // 轮转前刷空批量缓冲区
+    if (!m_batch_buf_.empty() && m_output_stream_) {
+        m_output_stream_->write(m_batch_buf_.data(), m_batch_buf_.size());
+        m_written_bytes_ += m_batch_buf_.size();
+        m_batch_buf_.clear();
+    }
+
+    // 关闭旧文件，打开新文件
     if (m_file_stream_ && m_file_stream_->is_open()) {
         m_file_stream_->flush();
         m_file_stream_->close();
     }
 
     std::string fname = GenerateLogFileName();
-    // Reinitialize file stream for new log file
     m_file_stream_ = std::make_unique<std::ofstream>(fname, std::ios::app | std::ios::binary);
     if (!m_file_stream_->is_open()) {
-        // redirect to stderr
         m_output_stream_ = &std::cerr;
     } else {
         m_output_stream_ = m_file_stream_.get();
@@ -182,88 +199,57 @@ void Logger::RotateIfNeeded() {
 
 void Logger::WriteToFile(const std::string& msg) {
     std::lock_guard<std::mutex> lk(m_file_mutex_);
-    RotateIfNeeded();
     if (!m_output_stream_) return;
-    size_t to_write = msg.size();
-    // Write to stream (replaces fwrite with C++ stream operation)
-    m_output_stream_->write(msg.data(), to_write);
-    if (m_output_stream_->good()) {  // Check stream state instead of return value
-        m_written_bytes_ += to_write;
+
+    // 日志追加到批量缓冲区
+    m_batch_buf_ += msg;
+
+    // 满足阈值或输出到stderr时刷盘（stderr需实时输出）
+    if (m_batch_buf_.size() >= m_batch_flush_threshold_ || m_output_stream_ == &std::cerr) {
+        RotateIfNeeded(); // 刷盘前检查是否需要轮转
+        m_output_stream_->write(m_batch_buf_.data(), m_batch_buf_.size());
+        if (m_output_stream_->good()) {
+            m_written_bytes_ += m_batch_buf_.size();
+        }
+        m_batch_buf_.clear(); // 清空缓冲区
     }
-    // flush periodically: here do not flush every write for performance; user can call flush in Shutdown.
-    // but flush if stderr
-    if (m_output_stream_ == &std::cerr) m_output_stream_->flush();  // Replaces fflush
 }
 
 void Logger::WorkerThread() {
-    // background consumer: pop from queue and write
+    std::vector<std::string> batch_msgs;
+    batch_msgs.reserve(32); // 预分配32条日志的空间，减少扩容开销
+
     while (m_running_.load() || !m_queue_.empty()) {
-        std::unique_lock<std::mutex> lk(m_queue_mutex_);
-        m_cv_not_empty_.wait(lk, [this]() { return !m_running_.load() || !m_queue_.empty(); });
+        batch_msgs.clear();
+
+        // 批量出队（自旋锁保护，减少锁竞争次数）
+        {
+            std::lock_guard<SpinLock> lk(m_queue_lock_); // 自旋锁加锁
+            while (!m_queue_.empty() && batch_msgs.size() < 32) {
+                batch_msgs.emplace_back(std::move(m_queue_.front()));
+                m_queue_.pop_front();
+            }
+        } // 自动解锁
+
+        // 批量写入文件（复用批量刷盘逻辑）
+        if (!batch_msgs.empty()) {
+            for (const auto& msg : batch_msgs) {
+                WriteToFile(msg);
+            }
+        } else {
+            // 无日志时yield CPU，减少空转消耗
+            std::this_thread::yield();
+        }
+    }
+
+    // 线程退出前刷空队列剩余日志
+    std::string remaining_msg;
+    {
+        std::lock_guard<SpinLock> lk(m_queue_lock_);
         while (!m_queue_.empty()) {
-            std::string msg = std::move(m_queue_.front());
+            remaining_msg = std::move(m_queue_.front());
             m_queue_.pop_front();
-            lk.unlock();
-            // write outside queue lock
-            WriteToFile(msg);
-            lk.lock();
-            // notify producers waiting for space
-            if (m_max_queue_size_ > 0) m_cv_not_full_.notify_one();
+            WriteToFile(remaining_msg);
         }
-    }
-    // ensure flush at end
-    std::lock_guard<std::mutex> lk_file(m_file_mutex_);
-    if (m_file_stream_ && m_file_stream_->is_open()) {
-        m_file_stream_->flush();  // Replaces fflush
-    }
-}
-
-void Logger::Log(LogLevel level, const char* fmt, ...) {
-    if (m_close_log_) return;
-
-    // format message using vsnprintf into local buffer
-    va_list args;
-    va_start(args, fmt);
-
-    std::string formatted;
-    formatted.resize(m_buf_size_);
-    int n = vsnprintf(&formatted[0], (int)formatted.size(), fmt, args);
-    va_end(args);
-
-    if (n < 0) {
-        return;
-    }
-    if ((size_t)n >= formatted.size()) {
-        // need bigger buffer
-        formatted.resize(n + 1);
-        va_list args2;
-        va_start(args2, fmt);
-        vsnprintf(&formatted[0], formatted.size(), fmt, args2);
-        va_end(args2);
-    }
-    formatted.resize(n);
-
-    // compose final message with timestamp and newline
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    std::string prefix = MakeTimePrefix(tv, level);
-    std::string final_msg;
-    final_msg.reserve(prefix.size() + formatted.size() + 2);
-    final_msg += prefix;
-    final_msg += formatted;
-    final_msg += '\n';
-
-    if (m_is_async_) {
-        // push to queue (blocking if full)
-        std::unique_lock<std::mutex> lk(m_queue_mutex_);
-        if (m_max_queue_size_ > 0) {
-            m_cv_not_full_.wait(lk, [this](){ return m_queue_.size() < m_max_queue_size_ || !m_running_.load(); });
-        }
-        m_queue_.emplace_back(std::move(final_msg));
-        lk.unlock();
-        m_cv_not_empty_.notify_one();
-    } else {
-        // synchronous path - directly write
-        WriteToFile(final_msg);
     }
 }
