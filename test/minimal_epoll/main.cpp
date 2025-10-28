@@ -8,7 +8,7 @@
 int main() {
   try {
     EpollServer server("127.0.0.1", 8080);
-    server.start();
+    server.eventloop();
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << std::endl;
     return 1;

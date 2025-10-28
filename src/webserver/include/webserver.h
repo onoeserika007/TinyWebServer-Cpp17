@@ -13,7 +13,7 @@ public:
   EpollServer(const std::string& host, int port);
   ~EpollServer();
 
-  void start();
+  void eventloop();
 
 private:
   void acceptConnections();

@@ -19,6 +19,7 @@ link_directories(${PROJECT_SOURCE_DIR}/lib)
 # core
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/webserver)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/logger)
+add_subdirectory(${PROJECT_SOURCE_DIR}/src/util)
 
 # test
 add_subdirectory(${PROJECT_SOURCE_DIR}/test/minimal_plain)

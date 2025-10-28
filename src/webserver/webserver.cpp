@@ -82,7 +82,6 @@ void EpollServer::initEpoll() {
 EpollServer::EpollServer(const std::string& host, int port)
     : host_(host), port_(port) {
 
-
     initLogger();
     initEpoll();
 }
@@ -92,7 +91,7 @@ EpollServer::~EpollServer() {
     close(epoll_fd_);
 }
 
-void EpollServer::start() {
+void EpollServer::eventloop() {
     std::vector<epoll_event> events(10);  // 用于保存 epoll 返回的事件
 
     while (true) {
@@ -124,24 +123,32 @@ void EpollServer::start() {
 }
 
 void EpollServer::acceptConnections() {
-    sockaddr_in client_addr {};
-    socklen_t client_len = sizeof(client_addr);
-    int client_fd = accept(server_fd_, (sockaddr*)&client_addr, &client_len);
-    if (client_fd == -1) {
-        LOG_ERROR("Failed to accept connection: errno=%d, error:%s", errno, strerror(errno));
-        return;
-    }
+    while (true) {
+        sockaddr_in client_addr {};
+        socklen_t client_len = sizeof(client_addr);
+        int client_fd = accept(server_fd_, (sockaddr*)&client_addr, &client_len);
+        if (client_fd == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
+            else {
+                LOG_ERROR("Failed to accept connection: errno=%d, error:%s", errno, strerror(errno));
+                return;
+            }
+        }
 
-    // 设置客户端 socket 为非阻塞
-    setNonBlocking(client_fd);
+        // 设置客户端 socket 为非阻塞
+        setNonBlocking(client_fd);
 
-    // 将新的客户端连接注册到 epoll 中
-    epoll_event ev {};
-    ev.events = EPOLLIN | EPOLLOUT;  // 关注读写事件
-    ev.data.fd = client_fd;
-    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev) == -1) {
-        LOG_ERROR("Failed to add client socket to epoll: errno=%d, error: %s", errno, strerror(errno));
-        close(client_fd);
+        // 将新的客户端连接注册到 epoll 中
+        epoll_event ev {};
+        // 注册客户端 fd 时只监听读事件, 此时写事件被触发会引起问题
+        ev.events = EPOLLIN | EPOLLET;  // 关注读写事件
+        ev.data.fd = client_fd;
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev) == -1) {
+            LOG_ERROR("Failed to add client socket to epoll: errno=%d, error: %s", errno, strerror(errno));
+            close(client_fd);
+        }
     }
 }
 
@@ -155,9 +162,16 @@ void EpollServer::handleRead(int fd) {
         return;
     } else if (bytes_read == 0) {
         std::cerr << "Client disconnected" << std::endl;
+        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
         close(fd);
     } else {
+        // 这里关注写缓存区可用
         // std::cout << "Received: " << std::string(buffer, bytes_read) << std::endl;
+        // 注册写事件，准备发送响应
+        epoll_event ev{};
+        ev.events = EPOLLOUT | EPOLLET;  // 边缘触发 + 写事件
+        ev.data.fd = fd;
+        epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev);  // 修改事件类型
     }
 }
 
@@ -179,5 +193,6 @@ void EpollServer::handleWrite(int fd) {
         }
     }
 
+    epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);  // 先删除
     close(fd);  // 关闭连接
 }
