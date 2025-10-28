@@ -1,0 +1,5 @@
+add_executable(log_test_complete log_test_complete.cpp)
+target_link_libraries(log_test_complete log_lib)
+
+add_executable(log_test_performance log_test_performance.cpp)
+target_link_libraries(log_test_performance log_lib)

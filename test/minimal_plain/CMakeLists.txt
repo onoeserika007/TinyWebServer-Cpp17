@@ -1,0 +1,4 @@
+add_executable(minimal_plain_server server.cpp)
+target_link_libraries(minimal_plain_server pthread)
+
+add_executable(minimal_plain_client client.cpp)
