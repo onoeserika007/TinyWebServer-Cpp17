@@ -3,13 +3,13 @@
 //
 
 // test_logger.cpp
-#include "logger.h"
+#include <atomic>
+#include <fstream>
+#include <iostream>
+#include <regex>
 #include <thread>
 #include <vector>
-#include <atomic>
-#include <iostream>
-#include <fstream>
-#include <regex>
+#include "logger.h"
 
 int main() {
     // init logger - base name "testlog"
@@ -38,7 +38,8 @@ int main() {
         });
     }
 
-    for (auto &th : threads) th.join();
+    for (auto &th: threads)
+        th.join();
 
     // shutdown logger to flush all messages
     Logger::Instance().Shutdown();
@@ -86,5 +87,3 @@ int main() {
 
     return 0;
 }
-
-

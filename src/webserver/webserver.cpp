@@ -3,18 +3,24 @@
 //
 
 #include "webserver.h"
+
+#include <assert.h>
+
 #include "logger.h"
 
+#include <arpa/inet.h>
+#include <cstring>
+#include <fcntl.h>
+#include <iostream>
+#include <netinet/in.h>
+#include <memory>
 #include <stdexcept>
 #include <sys/epoll.h>
-#include <iostream>
-#include <cstring>
-#include <unistd.h>
-#include <fcntl.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <unistd.h>
 #include <vector>
+
+#include "epoll_util.h"
 
 int EpollServer::setNonBlocking(int fd) {
     int flags = fcntl(fd, F_GETFL, 0);
@@ -29,7 +35,7 @@ int EpollServer::setNonBlocking(int fd) {
 
 void EpollServer::initLogger() {
     Logger::Instance().Init("webserver", true, 10000, 8192, 10 * 1024 * 1024, 0);
-    LOG_INFO("[EpollServer] - Log Init.");
+    LOG_INFO("[EpollServer] - Log Init {:d}", 114514);
 }
 
 void EpollServer::initEpoll() {
@@ -46,13 +52,13 @@ void EpollServer::initEpoll() {
     }
 
     // 设置 socket 地址信息
-    sockaddr_in server_addr {};
+    sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(port_);
     server_addr.sin_addr.s_addr = inet_addr(host_.c_str());
 
     // 绑定服务器地址
-    if (bind(server_fd_, (sockaddr*)&server_addr, sizeof(server_addr)) == -1) {
+    if (bind(server_fd_, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
         throw std::runtime_error("Failed to bind server socket");
     }
 
@@ -62,7 +68,7 @@ void EpollServer::initEpoll() {
     }
 
     // 设置 server socket 为非阻塞
-    setNonBlocking(server_fd_);
+    EpollUtil::setNonBlocking(server_fd_);
 
     // 创建 epoll 实例
     epoll_fd_ = epoll_create1(0);
@@ -71,7 +77,7 @@ void EpollServer::initEpoll() {
     }
 
     // 将 server socket 注册到 epoll 中
-    epoll_event ev {};
+    epoll_event ev{};
     ev.events = EPOLLIN;
     ev.data.fd = server_fd_;
     if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, server_fd_, &ev) == -1) {
@@ -79,8 +85,10 @@ void EpollServer::initEpoll() {
     }
 }
 
-EpollServer::EpollServer(const std::string& host, int port)
-    : host_(host), port_(port) {
+EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_(port) {
+
+    // http conns
+    connections_.resize(MAX_FD);
 
     initLogger();
     initEpoll();
@@ -91,14 +99,15 @@ EpollServer::~EpollServer() {
     close(epoll_fd_);
 }
 
+// public
 void EpollServer::eventloop() {
-    std::vector<epoll_event> events(10);  // 用于保存 epoll 返回的事件
+    std::vector<epoll_event> events(10); // 用于保存 epoll 返回的事件
 
     while (true) {
         int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), -1);
         if (num_events == -1) {
             if (errno == EINTR) {
-                continue;  // 被中断，忽略
+                continue; // 被中断，忽略
             } else {
                 std::cerr << "epoll_wait failed: " << strerror(errno) << std::endl;
                 break;
@@ -124,75 +133,66 @@ void EpollServer::eventloop() {
 
 void EpollServer::acceptConnections() {
     while (true) {
-        sockaddr_in client_addr {};
+        sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(server_fd_, (sockaddr*)&client_addr, &client_len);
+        int client_fd = accept(server_fd_, (sockaddr *) &client_addr, &client_len);
         if (client_fd == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
-            else {
-                LOG_ERROR("Failed to accept connection: errno=%d, error:%s", errno, strerror(errno));
-                return;
+
+            if (errno == EMFILE) {
+                LOG_ERROR("Failed to accept connection, no more fd is available: errno=%d, error:%s", errno, strerror(errno));
+                break;
             }
+
+            LOG_ERROR("Failed to accept connection: errno=%d, error:%s", errno, strerror(errno));
+            return;
         }
 
-        // 设置客户端 socket 为非阻塞
-        setNonBlocking(client_fd);
-
-        // 将新的客户端连接注册到 epoll 中
-        epoll_event ev {};
-        // 注册客户端 fd 时只监听读事件, 此时写事件被触发会引起问题
-        ev.events = EPOLLIN | EPOLLET;  // 关注读写事件
-        ev.data.fd = client_fd;
-        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev) == -1) {
-            LOG_ERROR("Failed to add client socket to epoll: errno=%d, error: %s", errno, strerror(errno));
-            close(client_fd);
+        // TODO make a connection
+        assert(client_fd >= 0 && client_fd < MAX_FD);
+        if (!connections_[client_fd]) {
+            connections_[client_fd] = std::make_unique<HttpConnection>();
         }
+        connections_[client_fd]->Init(client_fd, epoll_fd_, client_addr);
     }
 }
 
 void EpollServer::handleRead(int fd) {
-    char buffer[1024];
-    ssize_t bytes_read = read(fd, buffer, sizeof(buffer));
-    if (bytes_read == -1) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOG_ERROR("Read error: errno=%d, error: %s", errno, strerror(errno));
-        }
+    if (!connections_[fd]) {
         return;
-    } else if (bytes_read == 0) {
-        std::cerr << "Client disconnected" << std::endl;
-        epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
-        close(fd);
+    }
+
+    auto& http_conn = connections_[fd];
+
+    // if read success
+    LOG_INFO("[EpollServer] Reading from client: {:s}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    if (http_conn->ReadOnce()) {
+        // 不要用引用捕获局部变量，比如fd
+        thread_pool_.pushTask([this, fd = fd]() {
+            connections_[fd]->ProcessHttp();
+        });
+        // TODO timer
     } else {
-        // 这里关注写缓存区可用
-        // std::cout << "Received: " << std::string(buffer, bytes_read) << std::endl;
-        // 注册写事件，准备发送响应
-        epoll_event ev{};
-        ev.events = EPOLLOUT | EPOLLET;  // 边缘触发 + 写事件
-        ev.data.fd = fd;
-        epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &ev);  // 修改事件类型
+        // TODO callback
     }
 }
 
 void EpollServer::handleWrite(int fd) {
-    const std::string response = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
-
-    size_t total = 0;
-    while (total < response.size()) {
-        ssize_t n = write(fd, response.c_str() + total, response.size() - total);
-        if (n > 0) {
-            total += n;
-        } else if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            // 输出缓冲区满，等待下次 EPOLLOUT
-            break;
-        } else {
-            LOG_ERROR("Write error: errno=%d, error: %s", errno, strerror(errno));
-            close(fd);
-            return;
-        }
+    if (!connections_[fd]) {
+        return;
     }
 
-    epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);  // 先删除
-    close(fd);  // 关闭连接
+    auto& http_conn = connections_[fd];
+
+    LOG_INFO("[EpollServer] Writing to client: {:s}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    if (http_conn->WriteAll()) {
+        // Actually no write/read work need to be submitted to thread pool, it's for pure computation
+        // TODO timer
+        // Keep Alive
+    } else {
+        // TODO callback, now close connection
+        http_conn->Destroy();
+    }
 }
