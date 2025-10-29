@@ -180,11 +180,11 @@ void EpollServer::acceptConnections() {
             }
 
             if (errno == EMFILE) {
-                LOG_ERROR("Failed to accept connection, no more fd is available: errno=%d, error:%s", errno, strerror(errno));
+                LOG_ERROR("Failed to accept connection, no more fd is available: errno={:d}, error:{:s}", errno, strerror(errno));
                 break;
             }
 
-            LOG_ERROR("Failed to accept connection: errno=%d, error:%s", errno, strerror(errno));
+            LOG_ERROR("Failed to accept connection: errno={:d}, error:{:s}", errno, strerror(errno));
             return;
         }
 
@@ -194,6 +194,16 @@ void EpollServer::acceptConnections() {
             connections_[client_fd] = std::make_unique<HttpConnection>();
         }
         connections_[client_fd]->Init(client_fd, epoll_fd_, client_addr);
+
+        if (timer_handles_.count(client_fd)) {
+            timer_manager_.cancel(timer_handles_[client_fd]);
+        }
+
+        // destroy connection when time out
+        timer_handles_[client_fd] = timer_manager_.addTimer(15000, [this, fd = client_fd]() {
+            connections_[fd]->Destroy();
+            timer_handles_.erase(fd);
+        });
     }
 }
 
@@ -201,6 +211,8 @@ void EpollServer::handleRead(int fd) {
     if (!connections_[fd]) {
         return;
     }
+
+    auto timer = timer_handles_[fd];
 
     auto& http_conn = connections_[fd];
 
@@ -211,9 +223,15 @@ void EpollServer::handleRead(int fd) {
         thread_pool_.pushTask([this, fd = fd]() {
             connections_[fd]->ProcessHttp();
         });
-        // TODO timer
+
+        if (timer) {
+            timer_manager_.refresh(timer);
+        }
     } else {
         // TODO callback
+        if (timer) {
+            timer_manager_.triggerNow(timer);
+        }
     }
 }
 
@@ -224,14 +242,21 @@ void EpollServer::handleWrite(int fd) {
 
     auto& http_conn = connections_[fd];
 
+    auto timer = timer_handles_[fd];
+
     LOG_INFO("[EpollServer] Writing to client: {:s}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
     // if keep connection
     if (http_conn->WriteAll()) {
         // Actually no write/read work need to be submitted to thread pool, it's for pure computation
         // TODO timer
         // Keep Alive
+        if (timer) {
+            timer_manager_.refresh(timer);
+        }
     } else {
         // TODO callback, now close connection
-        http_conn->Destroy();
+        if (timer) {
+            timer_manager_.triggerNow(timer);
+        }
     }
 }

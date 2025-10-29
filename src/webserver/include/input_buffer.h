@@ -36,7 +36,7 @@ public:
     // 扩展已写入范围
     void has_written(size_t bytes) {
         if (bytes > writable_bytes()) {
-            LOG_ERROR("[InputBuffer] Overflow in has_written: %zu", bytes);
+            LOG_ERROR("[InputBuffer] Overflow in has_written: {:zu}", bytes);
             return;
         }
         read_end_ += bytes;

@@ -33,7 +33,7 @@ namespace EpollUtil {
         }
 
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
-            LOG_ERROR("Failed to add client socket to epoll: errno=%d, error: %s", errno, strerror(errno));
+            LOG_ERROR("Failed to add client socket to epoll: errno={:d}, error: {:s}", errno, strerror(errno));
             close(fd);
         }
     }

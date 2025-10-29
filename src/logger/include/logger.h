@@ -37,6 +37,8 @@ private:
 
 enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3 };
 
+inline auto visible_log_level = LogLevel::WARN;
+
 class Logger {
 public:
     // 获取单例
@@ -119,6 +121,10 @@ template<typename... Args>
 void Logger::Log(LogLevel level, const char *fmt, Args &&...args) {
     if (m_close_log_)
         return;
+
+    if (level < visible_log_level) {
+        return;
+    }
 
     // 2.1 可变参数格式化（C++20 std::vformat）
     std::string formatted_msg = std::vformat(fmt, std::make_format_args(args...));
