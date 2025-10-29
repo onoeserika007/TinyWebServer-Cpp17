@@ -23,10 +23,12 @@ private:
     void acceptConnections();
     void handleRead(int fd);
     void handleWrite(int fd);
-    int setNonBlocking(int fd);
 
     void initLogger();
     void initEpoll();
+    void initRouter();
+    void initHttpPreHandlers();
+    void initHttpPostHandlers();
 
 private:
     int server_fd_;

@@ -4,6 +4,9 @@
 
 #include "http_conn.h"
 #include "epoll_util.h"
+#include "http_parser.h"
+#include "http_request.h"
+#include "http_controller.h"
 
 #include <fcntl.h>
 #include <sys/uio.h>
@@ -14,6 +17,8 @@
 #include <cstring>
 #include <string>
 
+#include "http_response.h"
+#include "http_router.h"
 #include "logger.h"
 
 void HttpConnection::Init(int fd, int epoll_fd, sockaddr_in client_addr) {
@@ -29,12 +34,13 @@ void HttpConnection::Init(int fd, int epoll_fd, sockaddr_in client_addr) {
 
     // 将新的客户端连接注册到 epoll 中
     EpollUtil::addFdRead(epoll_fd_, conn_fd_, true, use_edge_trig_);
+
+    Init();
 }
 
 void HttpConnection::Init() {
-    memset(read_buf_, '\0', READ_BUFFER_SIZE);
-    memset(write_buf_, '\0', WRITE_BUFFER_SIZE);
-    memset(real_file_, '\0', FILENAME_LEN);
+    read_buffer_.clear();
+    parser_.reset();
 }
 
 void HttpConnection::Destroy() {
@@ -42,126 +48,119 @@ void HttpConnection::Destroy() {
     conn_fd_ = -1;
 }
 
+HttpStatus to_http_status(ParseResult result) {
+    switch (result) {
+        case ParseResult::OK:             return HttpStatus::OK;
+        case ParseResult::INCOMPLETE:     return HttpStatus::OK; // 不应走到这里
+        case ParseResult::BAD_REQUEST:    return HttpStatus::BAD_REQUEST;
+        case ParseResult::FORBIDDEN:      return HttpStatus::FORBIDDEN;
+        case ParseResult::NOT_FOUND:      return HttpStatus::NOT_FOUND;
+        case ParseResult::INTERNAL_ERROR: return HttpStatus::INTERNAL_ERROR;
+    }
+    return HttpStatus::INTERNAL_ERROR;
+}
+
 bool HttpConnection::ReadOnce() {
-    if (read_idx_ >= READ_BUFFER_SIZE)
-    {
-        LOG_ERROR("[HttpConnection] Read buffer overflow.");
+    // if need more read
+    if (!read_buffer_.read_from(conn_fd_, use_edge_trig_)) {
+        // read buffer overflow
+        Destroy();
         return false;
     }
-
-
-    ssize_t bytes_read = 0;
-    //LT读取数据
-    if (!use_edge_trig_)
-    {
-        bytes_read = recv(conn_fd_, read_buf_ + read_idx_, READ_BUFFER_SIZE - read_idx_, 0);
-        read_idx_ += bytes_read;
-
-        if (bytes_read <= 0)
-        {
-            return false;
-        }
-
-        return true;
-    }
-    //ET读数据
-    else
-    {
-        while (true)
-        {
-            bytes_read = recv(conn_fd_, read_buf_ + read_idx_, READ_BUFFER_SIZE - read_idx_, 0);
-            if (bytes_read == -1)
-            {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    break;
-                }
-
-                LOG_ERROR("[HttpConnection] Read error: errno=%d, error: %s", errno, strerror(errno));
-                return false;
-            }
-
-            if (bytes_read == 0)
-            {
-                LOG_INFO("[HttpConnection] Client disconnected.");
-                return false;
-            }
-
-            read_idx_ += bytes_read;
-        }
-        return true;
-    }
+    return true;
 }
 
 bool HttpConnection::WriteAll() {
-    int temp = 0;
+    WriteResult result = write_buffer_.write_to(conn_fd_);
 
-    if (bytes_to_send_ == 0)
-    {
-        EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
-        Init();
-        return true;
+    switch (result) {
+        case WriteResult::SUCCESS:
+            write_buffer_.unmap_if_needed();
+
+            // according to request parsing result
+            if (write_buffer_.should_close()) {
+                write_buffer_.reset();
+                Init();
+                EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
+                return true; // 不销毁连接
+            } else {
+                return false; // 销毁连接
+            }
+
+        case WriteResult::CONTINUE:
+            // 需要继续写，重新注册 EPOLLOUT（尤其 ONESHOT 必须这么做）
+            EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLOUT, use_edge_trig_);
+            return true; // 不销毁连接
+
+        case WriteResult::ERROR:
+            write_buffer_.unmap_if_needed();
+            return false; // 销毁连接
     }
 
-    while (true)
-    {
-        // 分散写入，避免拷贝开销
-        const auto write_bytes = writev(conn_fd_, m_iv_, m_iv_count_);
+    // dummy
+    return false;
+}
 
-        if (write_bytes < 0)
-        {
-            if (errno == EAGAIN)
-            {
-                EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLOUT, use_edge_trig_);
-                return true;
-            }
-            // unmap();
+bool HttpConnection::PreHandlersCheck(const HttpRequest& request, HttpResponse& response_) {
+    // --- Pre-processing ---
+    for (const auto& handler : pre_handlers_) {
+        handler(request, response_);
+        if (response_.is_error()) {
             return false;
         }
-
-        bytes_have_sent_ += write_bytes;
-        bytes_to_send_ -= write_bytes;
-        if (bytes_have_sent_ >= m_iv_[0].iov_len)
-        {
-            // 响应头已全部发送完毕
-            m_iv_[0].iov_len = 0;  // 头部不再发送
-
-            // 更新文件部分偏移：从文件中未发送的位置开始
-            m_iv_[1].iov_base = m_file_address + (bytes_have_sent_ - write_idx_);
-            m_iv_[1].iov_len = bytes_to_send_; // 剩余待发文件长度
-        }
-        else
-        {
-            // 响应头还没发完
-            m_iv_[0].iov_base = write_buf_ + bytes_have_sent_;
-            m_iv_[0].iov_len = m_iv_[0].iov_len - bytes_have_sent_;
-        }
-
-        if (bytes_to_send_ <= 0)
-        {
-            // unmap();
-            EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
-
-            if (use_keep_alive_)
-            {
-                Init();
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
     }
+    return true;
+}
+
+bool HttpConnection::PostHandlersCheck(const HttpRequest& request, HttpResponse& response_) {
+    // --- Post-processing ---
+    for (const auto& handler : post_handlers_) {
+        handler(request, response_);
+    }
+    return true;
 }
 
 void HttpConnection::ProcessHttp() {
-    std::string ret_content = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
-    sprintf(write_buf_, ret_content.data());
-    bytes_to_send_ = ret_content.size();
-    m_iv_[0].iov_base = write_buf_;
-    m_iv_[0].iov_len = bytes_to_send_;
-    m_iv_count_ = 1;
+
+    HttpRequest request;
+    ParseResult parse_result = parser_.parse({read_buffer_.data(), read_buffer_.readable_bytes()}, request);
+
+    switch (parse_result) {
+        case ParseResult::OK:
+            read_buffer_.retrieve(parser_.consumed_bytes()); // 移动读指针
+
+            if (!PreHandlersCheck(request, response_)) {
+                break;
+            }
+
+            // handle
+            if (!response_.is_handled()) { // 没被拦截
+                HttpRouter::instance().match(request, response_); // 处理业务逻辑
+            }
+
+            PostHandlersCheck(request, response_);
+            break;
+        case ParseResult::INCOMPLETE:
+            // 继续等待
+            EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
+            return;
+        default:
+            // 统一错误处理
+            response_.set_error_page(to_http_status(parse_result));
+            break;
+    }
+
+    response_.finalize(); // 准备 header + file
+
+    write_buffer_.set_response(response_.response_data(), response_.response_length(), response_.file_address(),
+                               response_.file_size());
+
+    if (!response_.keep_alive()) {
+        write_buffer_.set_close_on_done(true);
+    }
+
+    // ret_content_ = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
+    // write_buffer_.set_simple_response(ret_content_.data(), ret_content_.size());
 
     EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLOUT, use_edge_trig_);
 }
-

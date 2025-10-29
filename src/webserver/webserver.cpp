@@ -21,17 +21,10 @@
 #include <vector>
 
 #include "epoll_util.h"
-
-int EpollServer::setNonBlocking(int fd) {
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags == -1) {
-        throw std::runtime_error("fcntl failed");
-    }
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-        throw std::runtime_error("fcntl failed to set O_NONBLOCK");
-    }
-    return flags;
-}
+#include "http_router.h"
+#include "http_controller.h"
+#include "http_request.h"
+#include "http_response.h"
 
 void EpollServer::initLogger() {
     Logger::Instance().Init("webserver", true, 10000, 8192, 10 * 1024 * 1024, 0);
@@ -85,10 +78,55 @@ void EpollServer::initEpoll() {
     }
 }
 
+void EpollServer::initRouter() {
+    HttpRouter::instance().get("/", HttpController::hello);
+}
+
+void EpollServer::initHttpPreHandlers() {
+    HttpConnection::add_pre_handler([](const HttpRequest& req, HttpResponse& resp) {
+        bool keep_alive = (req.version() == "HTTP/1.1" && req.keep_alive()) ||
+                          (req.version() == "HTTP/1.0" && req.keep_alive());
+
+        if (keep_alive) {
+            resp.set_keep_alive();
+        }
+
+    });
+
+    HttpConnection::add_pre_handler([](const HttpRequest& req, HttpResponse& resp) {
+        if (req.host().empty()) {
+            resp.set_status(HttpStatus::BAD_REQUEST);
+            resp.set_body("Host header is required");
+        }
+    });
+
+
+}
+
+void EpollServer::initHttpPostHandlers() {
+    HttpConnection::add_post_handler([](const HttpRequest& req, HttpResponse& resp) {
+        if (!resp.has_header("Content-Type")) {
+            if (resp.body().starts_with("<!DOCTYPE html") ||
+                req.uri().ends_with(".html")) {
+                resp.add_header("Content-Type", "text/html");
+            } else if (req.uri().ends_with(".js")) {
+                resp.add_header("Content-Type", "application/javascript");
+            } else if (req.uri().ends_with(".css")) {
+                resp.add_header("Content-Type", "text/css");
+            } else {
+                resp.add_header("Content-Type", "text/plain");
+            }
+        }
+    });
+}
+
 EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_(port) {
 
     // http conns
     connections_.resize(MAX_FD);
+    initHttpPreHandlers();
+    initHttpPostHandlers();
+    initRouter();
 
     initLogger();
     initEpoll();
@@ -187,6 +225,7 @@ void EpollServer::handleWrite(int fd) {
     auto& http_conn = connections_[fd];
 
     LOG_INFO("[EpollServer] Writing to client: {:s}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    // if keep connection
     if (http_conn->WriteAll()) {
         // Actually no write/read work need to be submitted to thread pool, it's for pure computation
         // TODO timer
