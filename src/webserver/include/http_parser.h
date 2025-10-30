@@ -57,6 +57,8 @@ private:
     // 删除前后空白字符
     static auto trim(std::string_view sv) -> std::string_view;
 
+    // 解析表单数据
+    static void parse_form_data(const std::string& body, HttpRequest& req);
 
     auto parse_request_line(std::string_view line, HttpRequest& req) -> ParseResult;
     auto parse_headers(std::string_view headers, HttpRequest& req) -> ParseResult;

@@ -5,7 +5,8 @@
 // http_request_parser.cpp
 #include "http_parser.h"
 #include "http_request.h" // 假设已有 HttpRequest 定义
-
+#include <sstream>
+#include <iomanip>
 
 bool HttpRequestParser::iequals(std::string_view a, std::string_view b) {
     return a.size() == b.size() &&
@@ -27,6 +28,42 @@ auto HttpRequestParser::split_by_first(std::string_view str, char delim) -> std:
         return {str, {}};
     }
     return {trim(str.substr(0, pos)), trim(str.substr(pos + 1))};
+}
+
+void HttpRequestParser::parse_form_data(const std::string& body, HttpRequest& req) {
+    std::istringstream iss(body);
+    std::string pair;
+    
+    while (std::getline(iss, pair, '&')) {
+        auto eq_pos = pair.find('=');
+        if (eq_pos != std::string::npos) {
+            std::string key = pair.substr(0, eq_pos);
+            std::string value = pair.substr(eq_pos + 1);
+            
+            // URL解码
+            auto url_decode = [](const std::string& src) -> std::string {
+                std::string result;
+                result.reserve(src.size());
+                
+                for (size_t i = 0; i < src.size(); ++i) {
+                    if (src[i] == '%' && i + 2 < src.size()) {
+                        std::string hex_str = src.substr(i + 1, 2);
+                        char decoded_char = static_cast<char>(std::stoi(hex_str, nullptr, 16));
+                        result += decoded_char;
+                        i += 2;
+                    } else if (src[i] == '+') {
+                        result += ' ';
+                    } else {
+                        result += src[i];
+                    }
+                }
+                
+                return result;
+            };
+            
+            req.add_form_field(url_decode(key), url_decode(value));
+        }
+    }
 }
 
 void HttpRequestParser::reset() {
@@ -129,30 +166,51 @@ ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpReq
         return ParseResult::BAD_REQUEST;
     }
 
-    // URI 处理
-    if (uri.starts_with("http://")) {
-        auto slash = uri.find('/', 7);
-        uri = slash != std::string_view::npos ? uri.substr(slash) : "/";
-    } else if (uri.starts_with("https://")) {
-        auto slash = uri.find('/', 8);
-        uri = slash != std::string_view::npos ? uri.substr(slash) : "/";
+    // URI 处理 - 分离URL路径和查询参数
+    std::string_view path = uri;
+    std::string_view query;
+    
+    // 首先处理完整URL格式，提取路径部分
+    if (path.starts_with("http://")) {
+        auto slash = path.find('/', 7);
+        path = slash != std::string_view::npos ? path.substr(slash) : "/";
+    } else if (path.starts_with("https://")) {
+        auto slash = path.find('/', 8);
+        path = slash != std::string_view::npos ? path.substr(slash) : "/";
     }
 
-    if (uri.empty() || !uri.starts_with('/')) {
+    // 然后从路径中分离查询参数
+    auto query_pos = path.find('?');
+    if (query_pos != std::string_view::npos) {
+        query = path.substr(query_pos + 1);
+        path = path.substr(0, query_pos);
+    }
+
+    // 确保路径以 '/' 开头
+    if (path.empty()) {
+        path = "/";
+    } else if (!path.starts_with('/')) {
         return ParseResult::BAD_REQUEST;
     }
 
-    // 默认页面
-    // if (uri == "/") {
-    //     // uri = "/judge.html";
-    // }
+    // 设置处理后的URI（不包含查询参数）
+    req.set_uri(std::string(path));
 
-    req.set_uri(std::string(uri)); // 拷贝一份（也可设计为零拷贝生命周期管理）
+    // 如果有查询参数，可以将其添加到请求中（可选）
+    if (!query.empty()) {
+        req.add_header("Query-String", std::string(query));
+        // 对于GET请求，也可以解析查询参数为表单字段
+        if (req.method() == HttpRequest::Method::GET) {
+            parse_form_data(std::string(query), req);
+        }
+    }
 
     // 版本检查
     if (!iequals(version, "HTTP/1.1")) {
         return ParseResult::BAD_REQUEST;
     }
+    
+    req.set_version(std::string(version));
 
     return ParseResult::OK;
 }
@@ -172,6 +230,9 @@ ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpReque
         auto [key, value] = split_by_first(line, ':');
         if (key.empty()) continue;
 
+        // 存储所有请求头
+        req.add_header(std::string(key), std::string(value));
+
         if (iequals(key, "Connection")) {
             if (iequals(value, "keep-alive")) {
                 req.set_keep_alive(true);
@@ -185,8 +246,8 @@ ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpReque
             }
         } else if (iequals(key, "Host")) {
             req.set_host(std::string(value));
-        } else if (iequals(value, "close")) {
-            req.set_keep_alive(false); // 显式关闭
+        } else if (iequals(key, "Content-Type")) {
+            req.add_header("Content-Type", std::string(value));
         }
         // 忽略其他头（可选记录日志）
 
@@ -202,5 +263,12 @@ ParseResult HttpRequestParser::parse_body(std::string_view body, HttpRequest& re
     }
 
     req.set_body(std::string(body)); // POST 表单数据等
+    
+    // 解析表单数据（如果Content-Type是application/x-www-form-urlencoded）
+    std::string content_type = req.get_header("Content-Type");
+    if (content_type.find("application/x-www-form-urlencoded") != std::string::npos) {
+        parse_form_data(std::string(body), req);
+    }
+    
     return ParseResult::OK;
 }
