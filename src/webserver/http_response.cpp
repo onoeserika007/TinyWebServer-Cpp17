@@ -27,8 +27,10 @@ void HttpResponse::set_status(HttpStatus code, std::string reason) {
     } else {
         switch (code) {
             case HttpStatus::OK:             reason_phrase_ = "OK"; break;
+            case HttpStatus::FOUND:          reason_phrase_ = "Found"; break;
             case HttpStatus::NOT_FOUND:      reason_phrase_ = "Not Found"; break;
             case HttpStatus::BAD_REQUEST:    reason_phrase_ = "Bad Request"; break;
+            case HttpStatus::METHOD_NOT_ALLOWED: reason_phrase_ = "Method Not Allowed"; break;
             case HttpStatus::FORBIDDEN:      reason_phrase_ = "Forbidden"; break;
             case HttpStatus::INTERNAL_ERROR: reason_phrase_ = "Internal Server Error"; break;
             default:                         reason_phrase_ = "Unknown";
@@ -122,9 +124,9 @@ void HttpResponse::build_response() {
     std::string status_line = "HTTP/1.1 " + std::to_string(static_cast<int>(status_code_)) +
                               " " + reason_phrase_ + "\r\n";
 
-    header_buf_.clear();
-    header_buf_.reserve(512);
-    header_buf_.assign(status_line.begin(), status_line.end());
+    resp_buf_.clear();
+    resp_buf_.reserve(512);
+    resp_buf_.assign(status_line.begin(), status_line.end());
 
     // 默认 Content-Length
     if (headers_.find("Content-Length") == headers_.end()) {
@@ -142,27 +144,39 @@ void HttpResponse::build_response() {
         headers_["Server"] = "MyWebServer/1.0";
     }
 
+    // 只有在没有设置 Content-Type 时才设置默认值
+    if (headers_.find("Content-Type") == headers_.end()) {
+        if (has_file()) {
+            headers_["Content-Type"] = guess_content_type(file_path_);
+        } else {
+            // 检查body是否包含HTML内容
+            if (!body_.empty() && (body_.find("<!DOCTYPE html") != std::string::npos ||
+                                   body_.find("<html") != std::string::npos)) {
+                headers_["Content-Type"] = "text/html";
+           } else {
+               headers_["Content-Type"] = "text/plain";
+           }
+        }
+    }
+
     for (const auto& [k, v] : headers_) {
         std::string line = k + ": " + v + "\r\n";
-        header_buf_.insert(header_buf_.end(), line.begin(), line.end());
+        resp_buf_.insert(resp_buf_.end(), line.begin(), line.end());
     }
 
     // 分隔空行
-    header_buf_.insert(header_buf_.end(), {'\r', '\n'}); // \r\n\r\n
+    resp_buf_.insert(resp_buf_.end(), {'\r', '\n'}); // \r\n\r\n
 
     // 如果没有文件，则直接拼上 body
     if (!has_file() && !body_.empty()) {
-        header_buf_.insert(header_buf_.end(), body_.begin(), body_.end());
+        resp_buf_.insert(resp_buf_.end(), body_.begin(), body_.end());
     }
-
-    header_len_ = header_buf_.size();
 }
 
 void HttpResponse::finalize() {
     unmap_if_needed(); // 清理上次可能残留的 mmap
 
-    build_response();
-
+    // 先考虑file，最后build response
     if (!file_path_.empty()) {
         if (!map_file()) {
             // 文件打开失败 → 返回错误页
@@ -170,11 +184,34 @@ void HttpResponse::finalize() {
             set_status(HttpStatus::NOT_FOUND);
             set_body("<h1>404 Not Found</h1>");
             add_header("Content-Type", "text/html");
-            build_response();
             file_path_.clear(); // 清除 file 模式
-            return;
+            file_size_ = 0;
         }
     }
+
+    build_response();
+
+    // 注意：不要重复设置Content-Length，因为build_response已经设置了
+    // set_content_length(body_.size() + file_size());
+}
+
+// 缓存构造好的 header
+std::vector<char> resp_buf_;
+
+void HttpResponse::reset() {
+    unmap_if_needed();
+
+    status_code_ = HttpStatus::OK;
+    reason_phrase_.clear();
+    body_.clear();
+    file_path_.clear();
+    file_addr_ = nullptr;
+    file_size_ = 0;
+    resp_buf_.clear();
+
+    headers_.clear();
+
+    handled_ = false;
 }
 
 void HttpResponse::set_error_page(HttpStatus code) {

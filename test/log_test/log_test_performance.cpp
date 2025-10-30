@@ -76,7 +76,7 @@ int main() {
                 // 原子操作获取seq（无锁，性能开销极低）
                 int seq = global_seq.fetch_add(1, std::memory_order_relaxed);
                 // 写入日志：包含seq、线程ID、循环计数、固定长度payload
-                LOG_INFO("SEQ:%d thread:%d i:%d payload:%s", seq, t, i, payload.c_str());
+                LOG_INFO("SEQ:{:d} thread:{:d} i:{:d} payload:{:s}", seq, t, i, payload.c_str());
             }
         });
     }

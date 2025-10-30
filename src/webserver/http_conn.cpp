@@ -78,7 +78,7 @@ bool HttpConnection::WriteAll() {
             write_buffer_.unmap_if_needed();
 
             // according to request parsing result
-            if (write_buffer_.should_close()) {
+            if (!write_buffer_.should_close()) {
                 write_buffer_.reset();
                 Init();
                 EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
@@ -124,6 +124,8 @@ void HttpConnection::ProcessHttp() {
 
     HttpRequest request;
     ParseResult parse_result = parser_.parse({read_buffer_.data(), read_buffer_.readable_bytes()}, request);
+    LOG_INFO("[HttpConnection] Processing request uri:{}", request.uri());
+    response_.reset();
 
     switch (parse_result) {
         case ParseResult::OK:

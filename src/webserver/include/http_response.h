@@ -16,9 +16,14 @@
 
 enum class HttpStatus {
     OK = 200,
-    NOT_FOUND = 404,
+    FOUND = 302,
+    PARTIAL_CONTENT = 206,
+    NOT_MODIFIED = 304,
     BAD_REQUEST = 400,
+    METHOD_NOT_ALLOWED = 405,
     FORBIDDEN = 403,
+    NOT_FOUND = 404,
+    REQUESTED_RANGE_NOT_SATISFIABLE = 416,
     INTERNAL_ERROR = 500
 };
 
@@ -45,13 +50,15 @@ public:
     void finalize();
 
     // 提供给 OutputBuffer 的接口
-    const char* response_data() const { return header_buf_.data(); }
-    size_t response_length() const { return header_len_; }
+    const char* response_data() const { return resp_buf_.data(); }
+    size_t response_length() const { return resp_buf_.size(); }
     const char* file_address() const { return file_addr_; }
     size_t file_size() const { return file_size_; }
 
     bool has_file() const { return file_size_ > 0; }
     bool will_close() const { return close_connection_; }
+
+    void reset();
 
 private:
     HttpStatus status_code_ = HttpStatus::OK;
@@ -66,16 +73,13 @@ private:
     mutable bool mapped_ = false;
 
     // 缓存构造好的 header
-    std::vector<char> header_buf_;
-    size_t header_len_ = 0;
+    std::vector<char> resp_buf_;
 
     bool close_connection_ = false;
 
     void build_response();
     bool map_file() const; // mmap 文件
     void unmap_if_needed() const;
-
-    friend class HttpResponseBuilder; // 可选：builder 模式
 };
 
 

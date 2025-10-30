@@ -19,20 +19,20 @@
 void OutputBuffer::reset() {
     bytes_have_sent_ = 0;
     bytes_to_send_ = 0;
-    write_idx_ = 0;
+    response_bound_ = 0;
     iov_count_ = 0;
     file_address_ = nullptr;
     should_unmap_ = false;
     std::memset(iov_, 0, sizeof(iov_));
 }
 
-void OutputBuffer::set_response(const char* header_data, size_t header_len,
+void OutputBuffer::set_response(const char* response_data, size_t response_len,
                                 const char* file_addr, size_t file_size) {
     unmap_if_needed();
 
-    iov_[0].iov_base = const_cast<char*>(header_data);
-    iov_[0].iov_len = header_len;
-    write_idx_ = header_len;
+    iov_[0].iov_base = const_cast<char*>(response_data);
+    iov_[0].iov_len = response_len;
+    response_bound_ = response_len;
 
     if (file_size > 0 && file_addr != nullptr) {
         iov_[1].iov_base = const_cast<char*>(file_addr);
@@ -42,7 +42,7 @@ void OutputBuffer::set_response(const char* header_data, size_t header_len,
         iov_count_ = 1;
     }
 
-    bytes_to_send_ = header_len + file_size;
+    bytes_to_send_ = response_len + file_size;
     bytes_have_sent_ = 0;
     file_address_ = const_cast<char*>(file_addr);
     should_unmap_ = (file_addr != nullptr);
@@ -71,18 +71,17 @@ WriteResult OutputBuffer::write_to(int fd) {
     bytes_to_send_ -= n;
 
     // --- 核心逻辑：保持原始判断 ---
-    if (bytes_have_sent_ >= write_idx_) {
+    if (bytes_have_sent_ >= response_bound_) {
+        // 头部不再发送
         iov_[0].iov_len = 0;
-        if (iov_count_ == 2) {
-            char* base = static_cast<char*>(iov_[1].iov_base);
-            size_t sent = bytes_have_sent_ - write_idx_;
-            iov_[1].iov_base = base + sent;
-            iov_[1].iov_len = bytes_to_send_;
-        }
+
+        size_t file_bytes_sent = bytes_have_sent_ - response_bound_;
+        iov_[1].iov_base = file_address_ + file_bytes_sent;
+        iov_[1].iov_len = bytes_to_send_;
     } else {
         char* base = static_cast<char*>(iov_[0].iov_base);
         iov_[0].iov_base = base + bytes_have_sent_;
-        iov_[0].iov_len = write_idx_ - bytes_have_sent_;
+        iov_[0].iov_len = response_bound_ - bytes_have_sent_;
     }
 
     return bytes_to_send_ > 0 ? WriteResult::CONTINUE : WriteResult::SUCCESS;
@@ -102,7 +101,7 @@ OutputBuffer::OutputBuffer(OutputBuffer&& other) noexcept
     , iov_count_(other.iov_count_)
     , bytes_have_sent_(other.bytes_have_sent_)
     , bytes_to_send_(other.bytes_to_send_)
-    , write_idx_(other.write_idx_)
+    , response_bound_(other.response_bound_)
     , file_address_(other.file_address_)
     , should_unmap_(other.should_unmap_) {
     other.reset();
@@ -118,7 +117,7 @@ OutputBuffer& OutputBuffer::operator=(OutputBuffer&& other) noexcept {
         iov_count_ = other.iov_count_;
         bytes_have_sent_ = other.bytes_have_sent_;
         bytes_to_send_ = other.bytes_to_send_;
-        write_idx_ = other.write_idx_;
+        response_bound_ = other.response_bound_;
         file_address_ = other.file_address_;
         should_unmap_ = other.should_unmap_;
 

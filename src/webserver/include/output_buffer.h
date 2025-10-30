@@ -32,7 +32,7 @@ public:
     void reset();
 
     // 设置要发送的内容（由 HttpResponse 调用）
-    void set_response(const char* header_data, size_t header_len,
+    void set_response(const char* response_data, size_t response_len,
                       const char* file_addr, size_t file_size);
 
     void set_simple_response(const char* data, size_t len);
@@ -53,7 +53,7 @@ private:
 
     size_t bytes_have_sent_ = 0;     // 已发送总字节数
     size_t bytes_to_send_ = 0;       // 待发送总字节数
-    size_t write_idx_ = 0;           // header 长度（即 iov[0].iov_len 初始值）
+    size_t response_bound_ = 0;           // header 长度（即 iov[0].iov_len 初始值）
 
     void* file_address_ = nullptr;
     bool should_unmap_ = false;
