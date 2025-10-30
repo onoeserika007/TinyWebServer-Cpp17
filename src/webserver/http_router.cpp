@@ -126,12 +126,10 @@ void HttpRouter::RegisterRoutes() {
     // 其他页面 - 业务逻辑路由
     router.get("/picture", HttpController::showPicturePage);  // 图片页
     router.get("/video", HttpController::showVideoPage);    // 视频页
-    router.get("/fans", HttpController::showFansPage);     // 粉丝页
 
     // 对应的页面处理 - 直接文件访问路由
     router.get("/picture.html", StaticFileController::serveStaticFile);  // 图片页
     router.get("/video.html", StaticFileController::serveStaticFile);      // 视频页
-    router.get("/fans.html", StaticFileController::serveStaticFile);        // 粉丝页
     router.get("/judge.html", StaticFileController::serveStaticFile);      // 判断页
     router.get("/log.html", StaticFileController::serveStaticFile);        // 登录页
     router.get("/register.html", StaticFileController::serveStaticFile); // 注册页

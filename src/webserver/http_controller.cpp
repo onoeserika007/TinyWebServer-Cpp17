@@ -126,9 +126,4 @@ namespace HttpController {
         resp.set_file(kDocRoot + std::string("/video.html"));
     }
 
-    // 展示粉丝页面
-    void showFansPage(const HttpRequest& req, HttpResponse& resp) {
-        LOG_INFO("[HttpController] Showing fans page.");
-        resp.set_file(kDocRoot + std::string("/fans.html"));
-    }
 }
