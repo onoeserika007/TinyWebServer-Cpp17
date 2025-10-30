@@ -8,12 +8,14 @@
 #include <filesystem>
 #include <variant>
 
+constexpr const char* default_config_path = "conf/server.json";
+
 class ConfigManager {
 public:
     static ConfigManager& Instance();
 
     // 初始化配置管理器，加载配置文件
-    bool init(const std::string& config_path = "config.json");
+    bool init(const std::string& config_path = default_config_path);
     
     // 重置配置管理器状态
     void reset();
@@ -51,7 +53,7 @@ public:
     bool saveConfig(const std::string& path) const;
 
 private:
-    ConfigManager() = default;
+    ConfigManager();
     ~ConfigManager() = default;
     ConfigManager(const ConfigManager&) = delete;
     ConfigManager& operator=(const ConfigManager&) = delete;
@@ -66,6 +68,7 @@ private:
     Json::Value config_;
     mutable std::mutex mutex_;
     bool initialized_{false};
+    std::string config_path_{default_config_path}; // 默认配置文件路径
 };
 
 #endif // CONFIG_MANAGER_H

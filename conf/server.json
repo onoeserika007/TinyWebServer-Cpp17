@@ -18,7 +18,6 @@
         "document_root": "root"
     },
     "log": {
-        "level": "info",
         "visible_level": "info",
         "async": true,
         "flush_interval": 3,

@@ -7,6 +7,18 @@ ConfigManager& ConfigManager::Instance() {
     return instance;
 }
 
+ConfigManager::ConfigManager() {
+    // 构造函数中尝试加载默认配置文件
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!initialized_) {
+        // 尝试加载默认配置文件
+        if (loadConfig(config_path_)) {
+            validateConfig();
+            initialized_ = true;
+        }
+    }
+}
+
 bool ConfigManager::init(const std::string& config_path) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (initialized_) {
@@ -15,6 +27,8 @@ bool ConfigManager::init(const std::string& config_path) {
         reset();
     }
 
+    config_path_ = config_path;
+    
     if (!loadConfig(config_path)) {
         LOG_ERROR("Failed to load config file: {:s}", config_path);
         return false;
@@ -30,9 +44,9 @@ bool ConfigManager::init(const std::string& config_path) {
 }
 
 void ConfigManager::reset() {
-    std::lock_guard<std::mutex> lock(mutex_);
     config_ = Json::Value();
     initialized_ = false;
+    config_path_ = default_config_path;
 }
 
 bool ConfigManager::loadConfig(const std::string& path) {
@@ -113,14 +127,15 @@ bool ConfigManager::validateConfig() {
     const char* requiredFields[] = {
         "mysql.host", "mysql.port", "mysql.user", "mysql.password", "mysql.database",
         "mysql.pool_size", "server.port", "server.worker_threads", 
-        "server.max_connections", "server.document_root", "log.level", "log.path",
+        "server.max_connections", "server.document_root", "log.path",
         "log.to_console", "log.to_file", "log.flush_interval"
     };
 
     for (const auto& field : requiredFields) {
         Json::Value val = Json::Path(field).resolve(config_);
         if (val.isNull()) {
-            LOG_ERROR("Missing required config field: {:s}", field);
+            // 此时log有可能未初始化完成
+            std::cerr << "Missing required config field: " << field << std::endl;
             return false;
         }
     }

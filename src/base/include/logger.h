@@ -37,8 +37,6 @@ private:
 
 enum class LogLevel { DEBUG = 0, INFO = 1, WARN = 2, ERROR = 3 };
 
-inline auto visible_log_level = LogLevel::DEBUG;
-
 class Logger {
 public:
     // 获取单例
@@ -92,6 +90,7 @@ private:
     size_t m_rotate_bytes_;
     int m_close_log_;
     bool m_realtime_ = true;
+    LogLevel m_visible_log_level_; // 日志可见级别
 
     // runtime
     std::string m_current_name_;
@@ -122,7 +121,7 @@ void Logger::Log(LogLevel level, const char *fmt, Args &&...args) {
     if (m_close_log_)
         return;
 
-    if (level < visible_log_level) {
+    if (level < m_visible_log_level_) {
         return;
     }
 

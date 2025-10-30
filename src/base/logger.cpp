@@ -4,12 +4,12 @@
 
 
 #include "logger.h"
+#include "config_manager.h"
 
 #include <cstring>
 #include <ctime>
 #include <format>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <ostream>
@@ -23,6 +23,7 @@ Logger &Logger::Instance() {
 
 Logger::Logger() :
     m_buf_size_(8192), m_rotate_bytes_(50 * 1024 * 1024), m_close_log_(0),
+    m_visible_log_level_(LogLevel::DEBUG), // 默认为DEBUG级别
     m_file_stream_(nullptr), // Replaces FILE* with RAII-managed ofstream
     m_written_bytes_(0), m_today_(0), m_max_queue_size_(0), m_running_(false), m_is_async_(true),
     m_output_stream_(nullptr), // Unified interface for file/stderr output
@@ -33,6 +34,26 @@ Logger::~Logger() { Shutdown(); }
 
 bool Logger::Init(std::string file_name, bool async, size_t max_queue_size, size_t buf_size, size_t rotate_bytes,
                   int close_log) {
+    // 从配置管理器获取日志可见级别
+    try {
+        std::string levelStr = ConfigManager::Instance().getLogVisibleLevel();
+        if (levelStr == "debug") {
+            m_visible_log_level_ = LogLevel::DEBUG;
+        } else if (levelStr == "info") {
+            m_visible_log_level_ = LogLevel::INFO;
+        } else if (levelStr == "warn") {
+            m_visible_log_level_ = LogLevel::WARN;
+        } else if (levelStr == "error") {
+            m_visible_log_level_ = LogLevel::ERROR;
+        } else {
+            // 默认为DEBUG级别
+            m_visible_log_level_ = LogLevel::DEBUG;
+        }
+    } catch (...) {
+        // 如果无法获取配置，默认为DEBUG级别
+        m_visible_log_level_ = LogLevel::DEBUG;
+    }
+
     m_base_name_ = std::move(file_name);
     m_is_async_ = async;
     m_max_queue_size_ = max_queue_size;
