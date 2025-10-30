@@ -4,7 +4,7 @@
         "port": 3306,
         "user": "root",
         "password": "585267",
-        "database": "webserver",
+        "database": "webserver_db",
         "pool_size": 8,
         "connect_timeout": 10,
         "read_timeout": 30,

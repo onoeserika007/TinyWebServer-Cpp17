@@ -5,5 +5,5 @@ get_filename_component(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR} ABSOLUTE)
 aux_source_directory(${SRC_DIR} SRC_LIST)
 
 add_library(webserver_lib ${SRC_LIST})
-target_link_libraries(webserver_lib log_lib util_lib)
+target_link_libraries(webserver_lib base_lib util_lib)
 target_include_directories(webserver_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

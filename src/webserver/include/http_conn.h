@@ -53,16 +53,6 @@ private:
     int epoll_fd_ {-1};
     int conn_fd_ {-1};
     sockaddr_in client_addr_;
-    char read_buf_[READ_BUFFER_SIZE];
-    char write_buf_[WRITE_BUFFER_SIZE];
-    char *m_file_address;
-    char real_file_[FILENAME_LEN];
-    ssize_t read_idx_;
-    ssize_t write_idx_;
-    ssize_t bytes_to_send_;
-    ssize_t bytes_have_sent_;
-    struct iovec m_iv_[2]; // send http and file
-    int m_iv_count_;
 
     // io
     InputBuffer read_buffer_;

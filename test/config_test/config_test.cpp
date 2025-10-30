@@ -37,7 +37,7 @@ void testServerConfigFile() {
     std::cout << "HTTP Server configuration check completed!" << std::endl;
 
     std::cout << "\nVerifying Log Configuration:" << std::endl;
-    std::cout << "Level: " << ConfigManager::Instance().getLogLevel() << std::endl;
+    std::cout << "Visible Level: " << ConfigManager::Instance().getLogVisibleLevel() << std::endl;
     std::cout << "Path: " << ConfigManager::Instance().getLogPath() << std::endl;
     std::cout << "To Console: " << (ConfigManager::Instance().getLogToConsole() ? "yes" : "no") << std::endl;
     std::cout << "To File: " << (ConfigManager::Instance().getLogToFile() ? "yes" : "no") << std::endl;
@@ -70,8 +70,7 @@ void testConfigSerialization() {
     root["server"]["max_connections"] = 8000;
     root["server"]["document_root"] = "/serialize/test/root";
     root["server"]["timeout_ms"] = 5000;
-    
-    root["log"]["level"] = "warn";
+
     root["log"]["visible_level"] = "warn";
     root["log"]["async"] = false;
     root["log"]["path"] = "/serialize/test/logs";
@@ -106,8 +105,7 @@ void testConfigSerialization() {
     assert(config.getMaxConnections() == 8000);
     assert(config.getDocumentRoot() == "/serialize/test/root");
     assert(config.getTimeoutMs() == 5000);
-    
-    assert(config.getLogLevel() == "warn");
+
     assert(config.getLogVisibleLevel() == "warn");
     assert(config.getLogAsync() == false);
     assert(config.getLogPath() == "/serialize/test/logs");
