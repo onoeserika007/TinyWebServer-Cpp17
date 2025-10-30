@@ -1,5 +1,7 @@
 .idea
+.vscode
 bin
 build
 cmake-build-debug
 lib
+*.log
