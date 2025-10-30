@@ -1,6 +1,7 @@
 #include "static_file_controller.h"
 #include <filesystem>
 #include <regex>
+#include <fstream>
 
 void StaticFileController::serveStaticFile(const HttpRequest& req, HttpResponse& resp) {
     LOG_INFO("[StaticFileController] Handling url {}", req.uri());
@@ -35,7 +36,7 @@ void StaticFileController::serveStaticFile(const HttpRequest& req, HttpResponse&
 
     // 处理部分内容请求（Range）
     if (auto it = req.headers().find("Range"); it != req.headers().end()) {
-        handleRangeRequest(it->second, fileSize, filepath, resp);
+        handleRangeRequest(it->second, fileSize, filepath, req, resp);
         return;
     }
 
@@ -82,6 +83,9 @@ void StaticFileController::serveStaticFile(const HttpRequest& req, HttpResponse&
         // 启用缓存控制
         resp.add_header("Cache-Control", "public, max-age=3600");
     }
+    
+    // 添加 Accept-Ranges 头表明服务器支持范围请求
+    resp.add_header("Accept-Ranges", "bytes");
 }
 
 void StaticFileController::serveFile(const std::string& filepath, HttpResponse& resp) {
@@ -111,7 +115,8 @@ void StaticFileController::serveFile(const std::string& filepath, HttpResponse& 
 
 void StaticFileController::handleRangeRequest(const std::string& rangeHeader, 
                                              std::uintmax_t fileSize,
-                                             const std::string& filepath, 
+                                             const std::string& filepath,
+                                             const HttpRequest& req,
                                              HttpResponse& resp) {
     // 解析范围请求头
     std::smatch matches;
@@ -142,7 +147,18 @@ void StaticFileController::handleRangeRequest(const std::string& rangeHeader,
         "bytes " + std::to_string(start) + "-" + 
         std::to_string(end) + "/" + std::to_string(fileSize));
     
-    // TODO: 实现实际的范围读取
-    LOG_WARN("Range requests not fully implemented yet");
-    resp.set_file(filepath);
+    // 设置 Content-Type
+    auto mimeType = MimeTypes::getMimeType(filepath);
+    resp.add_header("Content-Type", std::string(mimeType));
+    
+    // 对于范围请求，我们需要提供特定范围的数据
+    // 通过设置 Accept-Ranges 头来表明服务器支持范围请求
+    resp.add_header("Accept-Ranges", "bytes");
+    
+    // 设置 Content-Length 为范围大小
+    size_t rangeSize = end - start + 1;
+    resp.add_header("Content-Length", std::to_string(rangeSize));
+    
+    // 使用文件映射方式处理范围请求，避免在内存中加载整个文件
+    resp.set_file_with_range(filepath, start, rangeSize);
 }

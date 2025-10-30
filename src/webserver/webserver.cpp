@@ -230,7 +230,7 @@ void EpollServer::handleRead(int fd) {
     auto& http_conn = connections_[fd];
 
     // if read success
-    LOG_INFO("[EpollServer] Http conn coming from client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    LOG_DEBUG("[EpollServer] Http conn coming from client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
     if (http_conn->ReadOnce()) {
         // 不要用引用捕获局部变量，比如fd
         thread_pool_.pushTask([this, fd = fd]() {
@@ -257,7 +257,7 @@ void EpollServer::handleWrite(int fd) {
 
     auto timer = timer_handles_[fd];
 
-    LOG_INFO("[EpollServer] Resp to client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    LOG_DEBUG("[EpollServer] Resp to client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
     // if keep connection
     if (http_conn->WriteAll()) {
         // Actually no write/read work need to be submitted to thread pool, it's for pure computation

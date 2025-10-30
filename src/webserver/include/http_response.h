@@ -34,6 +34,7 @@ public:
     void set_body(std::string body);
     void set_content_length(size_t len);
     void set_file(std::string filepath); // 触发 mmap + writev
+    void set_file_with_range(std::string filepath, size_t start, size_t length); // 支持范围请求
     void set_error_page(HttpStatus code);
     void set_close();                    // 不启用 keep-alive
     void set_keep_alive();
@@ -70,6 +71,7 @@ private:
     std::string file_path_;
     mutable char* file_addr_ = nullptr;
     mutable size_t file_size_ = 0;
+    mutable size_t file_start_ = 0;  // 文件范围起始位置
     mutable bool mapped_ = false;
 
     // 缓存构造好的 header
@@ -79,7 +81,10 @@ private:
 
     void build_response();
     bool map_file() const; // mmap 文件
+    bool map_file_with_range(size_t start, size_t length) const; // mmap 文件范围
     void unmap_if_needed() const;
+
+    friend class HttpResponseBuilder; // 可选：builder 模式
 };
 
 

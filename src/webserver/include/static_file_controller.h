@@ -45,7 +45,8 @@ private:
     // 处理范围请求
     static void handleRangeRequest(const std::string& rangeHeader, 
                                  std::uintmax_t fileSize,
-                                 const std::string& filepath, 
+                                 const std::string& filepath,
+                                 const HttpRequest& req,
                                  HttpResponse& resp);
 };
 

@@ -41,6 +41,7 @@ void HttpConnection::Init(int fd, int epoll_fd, sockaddr_in client_addr) {
 void HttpConnection::Init() {
     read_buffer_.clear();
     parser_.reset();
+    response_.reset(); // 确保HttpResponse也被正确初始化
 }
 
 void HttpConnection::Destroy() {
@@ -160,9 +161,6 @@ void HttpConnection::ProcessHttp() {
     if (!response_.keep_alive()) {
         write_buffer_.set_close_on_done(true);
     }
-
-    // ret_content_ = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
-    // write_buffer_.set_simple_response(ret_content_.data(), ret_content_.size());
 
     EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLOUT, use_edge_trig_);
 }
