@@ -31,7 +31,7 @@ int main() {
                 std::lock_guard lk(log_mutex);
                 int seq = global_seq.fetch_add(1, std::memory_order_relaxed);
                 // include seq and thread id and a small payload
-                LOG_INFO("SEQ:%d thread:%d i:%d payload:HelloWorld", seq, t, i);
+                LOG_INFO("SEQ:{:d} thread:{:d} i:{:d} payload:HelloWorld", seq, t, i);
                 // optional: tiny sleep to create more interleaving
                 // if (i % 1000 == 0) std::this_thread::sleep_for(std::chrono::microseconds(1));
             }

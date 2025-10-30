@@ -1,0 +1,30 @@
+{
+    "mysql": {
+        "host": "localhost",
+        "port": 3306,
+        "user": "root",
+        "password": "585267",
+        "database": "webserver",
+        "pool_size": 8,
+        "connect_timeout": 10,
+        "read_timeout": 30,
+        "write_timeout": 30
+    },
+    "server": {
+        "port": 9007,
+        "worker_threads": 8,
+        "max_connections": 10000,
+        "timeout_ms": 10000,
+        "document_root": "root"
+    },
+    "log": {
+        "level": "info",
+        "visible_level": "info",
+        "async": true,
+        "flush_interval": 3,
+        "roll_size": 5000000,
+        "path": "log",
+        "to_console": true,
+        "to_file": true
+    }
+}
