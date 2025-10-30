@@ -81,6 +81,7 @@ set(PROJECT_SOVERSION 25)
 include(${CMAKE_CURRENT_SOURCE_DIR}/include/PreventInSourceBuilds.cmake)
 include(${CMAKE_CURRENT_SOURCE_DIR}/include/PreventInBuildInstalls.cmake)
 
+# 禁用所有不需要的选项，只构建静态库
 option(JSONCPP_WITH_TESTS "Compile and (for jsoncpp_check) run JsonCpp test executables" OFF)
 option(JSONCPP_WITH_POST_BUILD_UNITTEST "Automatically run unit-tests as a post build step" OFF)
 option(JSONCPP_WITH_WARNING_AS_ERROR "Force compilation to fail if a warning occurs" OFF)
@@ -89,9 +90,9 @@ option(JSONCPP_WITH_PKGCONFIG_SUPPORT "Generate and install .pc files" OFF)
 option(JSONCPP_WITH_CMAKE_PACKAGE "Generate and install cmake package files" OFF)
 option(JSONCPP_WITH_EXAMPLE "Compile JsonCpp example" OFF)
 option(JSONCPP_STATIC_WINDOWS_RUNTIME "Use static (MT/MTd) Windows runtime" OFF)
-option(BUILD_SHARED_LIBS "Build jsoncpp_lib as a shared library." ON)
+option(BUILD_SHARED_LIBS "Build jsoncpp_lib as a shared library." OFF)
 option(BUILD_STATIC_LIBS "Build jsoncpp_lib as a static library." ON)
-option(BUILD_OBJECT_LIBS "Build jsoncpp_lib as a object library." ON)
+option(BUILD_OBJECT_LIBS "Build jsoncpp_lib as a object library." OFF)
 
 # 添加 -fPIC
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -168,49 +169,10 @@ if(JSONCPP_WITH_WARNING_AS_ERROR)
     use_compilation_warning_as_error()
 endif()
 
-if(JSONCPP_WITH_PKGCONFIG_SUPPORT)
-    include(JoinPaths)
-
-    join_paths(libdir_for_pc_file "\${exec_prefix}" "${CMAKE_INSTALL_LIBDIR}")
-    join_paths(includedir_for_pc_file "\${prefix}" "${CMAKE_INSTALL_INCLUDEDIR}")
-
-    configure_file(
-        "pkg-config/jsoncpp.pc.in"
-        "pkg-config/jsoncpp.pc"
-        @ONLY)
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/pkg-config/jsoncpp.pc"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")
-endif()
-
-if(JSONCPP_WITH_CMAKE_PACKAGE)
-    include(CMakePackageConfigHelpers)
-    install(EXPORT jsoncpp
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jsoncpp
-        FILE        jsoncpp-targets.cmake)
-    configure_package_config_file(jsoncppConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/jsoncppConfig.cmake
-        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jsoncpp)
-
-    write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/jsoncppConfigVersion.cmake"
-        VERSION ${PROJECT_VERSION}
-        COMPATIBILITY SameMajorVersion)
-    install(FILES
-        ${CMAKE_CURRENT_BINARY_DIR}/jsoncppConfigVersion.cmake ${CMAKE_CURRENT_BINARY_DIR}/jsoncppConfig.cmake
-        ${CMAKE_CURRENT_SOURCE_DIR}/jsoncpp-namespaced-targets.cmake
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/jsoncpp)
-endif()
-
-if(JSONCPP_WITH_TESTS)
-    enable_testing()
-    include(CTest)
-endif()
-
 # Build the different applications
 add_subdirectory(src)
 
 #install the includes
 add_subdirectory(include)
 
-#install the example
-if(JSONCPP_WITH_EXAMPLE)
-    add_subdirectory(example)
-endif()
+# 不构建示例和测试
