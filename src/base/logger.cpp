@@ -85,6 +85,7 @@ bool Logger::Init(std::string file_name, bool async, size_t max_queue_size, size
         if (m_written_bytes_ == static_cast<size_t>(-1))
             m_written_bytes_ = 0;
         m_output_stream_ = m_file_stream_.get();
+        std::cout << "Logger: successfully opened log file " << fname << std::endl;
     }
 
     m_current_name_ = fname;
@@ -112,6 +113,10 @@ void Logger::Shutdown() {
     if (!m_batch_buf_.empty() && m_output_stream_) {
         m_output_stream_->write(m_batch_buf_.data(), m_batch_buf_.size());
         m_written_bytes_ += m_batch_buf_.size();
+        // 确保缓冲区被刷新
+        if (m_file_stream_ && m_file_stream_->is_open()) {
+            m_file_stream_->flush();
+        }
         m_batch_buf_.clear();
     }
 
@@ -202,8 +207,10 @@ void Logger::RotateIfNeeded() {
     m_file_stream_ = std::make_unique<std::ofstream>(fname, std::ios::app | std::ios::binary);
     if (!m_file_stream_->is_open()) {
         m_output_stream_ = &std::cerr;
+        std::cerr << "Logger: failed to rotate log file to " << fname << std::endl;
     } else {
         m_output_stream_ = m_file_stream_.get();
+        std::cout << "Logger: successfully rotated to new log file " << fname << std::endl;
     }
     m_current_name_ = fname;
     m_written_bytes_ = 0;
@@ -225,13 +232,18 @@ void Logger::WriteToFile(const std::string &msg) {
         // 写入文件
         if (m_file_stream_ && m_file_stream_->is_open()) {
             m_file_stream_->write(m_batch_buf_.data(), m_batch_buf_.size());
-            if (m_file_stream_->good())
+            if (m_file_stream_->good()) {
                 m_written_bytes_ += m_batch_buf_.size();
+                m_file_stream_->flush();
+            } else {
+                // 如果写入失败，输出错误信息到标准错误流
+                std::cerr << "Failed to write to log file: " << m_current_name_ << std::endl;
+            }
         }
 
         // 同时写到控制台（无论文件是否成功）
-        // std::cout.write(m_batch_buf_.data(), m_batch_buf_.size());
-        // std::cout.flush();
+        std::cout.write(m_batch_buf_.data(), m_batch_buf_.size());
+        std::cout.flush();
 
         m_batch_buf_.clear(); // 清空缓冲区
     }
