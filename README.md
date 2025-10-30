@@ -1,46 +1,100 @@
-# CMake规范
+# TinyWebServer-Cpp11
 
-根目录的cmake只负责项目标准制定和架构，具体的构建选项全部由子目录负责
-子目录cmake编写时遵循现有规范，如
-``` cmake
-# 获取源文件目录的绝对路径
-get_filename_component(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR} ABSOLUTE)
+A lightweight, high-performance web server implemented in modern C++20. Features include event-driven I/O, thread pool, MySQL connection pool, lock-free async logging, and zero-copy file transfer.
 
-aux_source_directory(${SRC_DIR} SRC_LIST)
+### Features
+* Event-driven I/O: Uses epoll in edge-triggered mode for non-blocking I/O
+* Thread Pool: Separates I/O and computation tasks for optimal resource utilization
+* MySQL Connection Pool: Thread-safe connection management with auto-reconnection
+* Lock-free Async Logger: High-performance logging with async queue and file rotation
+* Static File Server: Zero-copy transfer using mmap/sendfile with HTTP Range support
+* HTTP Framework: Modular design with parser, router, controller and middleware support
+* Timer Wheel: O(1) complexity for connection timeout management
 
-# Build shared library
-add_library(base_lib SHARED ${SRC_LIST})
-
-# Make the include directory available to users of this library
-target_include_directories(base_lib 
-    PUBLIC 
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-# Link with jsoncpp and pthread
-target_link_libraries(base_lib 
-    PUBLIC 
-        jsoncpp_static 
-        pthread
-)
+### Build Requirements
+* Linux
+* GCC 13+ (for C++20 support)
+* CMake 3.16+
+* MySQL development libraries
+* make/ninja
+### Quick Start
+1. Install dependencies (Ubuntu/Debian):
+```bash
+sudo apt install g++-13 libmysqlclient-dev cmake make
+```
+2. Build:
+```bash
+mkdir -p build
+CC=/usr/bin/gcc-13 CXX=/usr/bin/g++-13 cmake -S . -B build
+cmake --build build -j$(nproc)
+```
+3. Setup MySQL:
+```sql
+CREATE DATABASE webserver_db;
+USE webserver;
+CREATE TABLE user (
+    username CHAR(50) NULL,
+    passwd CHAR(50) NULL
+) ENGINE=InnoDB;
+```
+4. Configure server:
+``` json
+{
+    "server": {
+        "port": 8080,
+        "thread_count": 32
+    },
+    "mysql": {
+        "host": "localhost",
+        "user": "root",
+        "password": "your_password",
+        "database": "webserver_db",
+        "pool_size": 8
+    },
+    "log": {
+        "file": "server.log",
+        "level": "INFO",
+        "async": true
+    }
+}
+```
+5. Run:
+```
+{project_dir}/bin/epoll_server
 ```
 
-注意：测试程序只需要链接相应的库（如util_lib、base_lib），不需要显式添加include目录，
-因为库的target_include_directories设置会自动传播包含路径。
+### Project Structure
 
-```cmake
-# 测试程序只需要链接库，不需要显式添加include目录
-add_executable(config_test config_test.cpp)
-target_link_libraries(config_test
-    util_lib  # 自动获取util/include路径
-    base_lib  # 自动获取base/include路径
-)
+```
+.
+├── src/
+│   ├── base/          # Core components (logging, config, timer)
+│   ├── util/          # Utilities (thread pool, connection pool)
+│   └── webserver/     # HTTP server implementation
+├── thirdparty/        # Third-party dependencies
+├── test/              # Test cases
+├── root/             # Static resources
+└── CMakeLists.txt    # Main build configuration
 ```
 
-获取当前目录全部源文件，不要显式添加include dir，include dir应该通过target_include_directories添加给子模块，其他使用的地方通过链接静态库自动获取include dir
+### API Examples
+Register a new user:
+```bash
+curl -X POST http://localhost:8080/register -d "user=test&passwd=123"
+```
 
-cmake构建使用cmake --build . -j32
+Login:
+```bash
+curl -X POST http://localhost:8080/login -d "user=test&passwd=123"
+```
 
-所有测试的运行都默认在根目录
+Stream video with range support:
+```bash
+curl -H "Range: bytes=1000-2000" http://localhost:8080/video.mp4
+```
 
-检测到代码和缓存不一致，以磁盘内容为准，因为我可能有手动修改
+### Configuration
+See config.json for all available options. Key configurations:
+* Server port and thread count
+* MySQL connection settings
+* Logging configuration (async/sync, log level, rotation)
