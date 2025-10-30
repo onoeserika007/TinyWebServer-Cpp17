@@ -33,12 +33,14 @@ public:
     HttpRouter(const HttpRouter&) = delete;
     HttpRouter& operator=(const HttpRouter&) = delete;
 
+    void RegisterRoutes();
+
 private:
     HttpRouter() = default;
 
     struct Route {
-        HttpHandlerFunc handler;
-        bool is_post = false;
+        HttpHandlerFunc get_handler;
+        HttpHandlerFunc post_handler;
     };
 
     std::unordered_map<std::string, Route> routes_ {};

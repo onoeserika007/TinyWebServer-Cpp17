@@ -7,6 +7,8 @@
 #include <assert.h>
 
 #include "logger.h"
+#include "config_manager.h"
+#include "user_service.h"
 
 #include <arpa/inet.h>
 #include <cstring>
@@ -25,10 +27,20 @@
 #include "http_controller.h"
 #include "http_request.h"
 #include "http_response.h"
+#include "static_file_controller.h"
 
 void EpollServer::initLogger() {
     Logger::Instance().Init("webserver", true, 10000, 8192, 10 * 1024 * 1024, 0);
     LOG_INFO("[EpollServer] - Log Init {:d}", 114514);
+}
+
+void EpollServer::initUserService() {
+    // 初始化用户服务
+    if (!UserService::Instance().init()) {
+        LOG_ERROR("[EpollServer] Failed to initialize user service");
+        throw std::runtime_error("Failed to initialize user service");
+    }
+    LOG_INFO("[EpollServer] User service initialized");
 }
 
 void EpollServer::initEpoll() {
@@ -79,7 +91,8 @@ void EpollServer::initEpoll() {
 }
 
 void EpollServer::initRouter() {
-    HttpRouter::instance().get("/", HttpController::hello);
+    auto& router = HttpRouter::instance();
+    router.RegisterRoutes();
 }
 
 void EpollServer::initHttpPreHandlers() {
@@ -105,18 +118,17 @@ void EpollServer::initHttpPreHandlers() {
 
 void EpollServer::initHttpPostHandlers() {
     HttpConnection::add_post_handler([](const HttpRequest& req, HttpResponse& resp) {
-        if (!resp.has_header("Content-Type")) {
-            if (resp.body().starts_with("<!DOCTYPE html") ||
-                req.uri().ends_with(".html")) {
-                resp.add_header("Content-Type", "text/html");
-            } else if (req.uri().ends_with(".js")) {
-                resp.add_header("Content-Type", "application/javascript");
-            } else if (req.uri().ends_with(".css")) {
-                resp.add_header("Content-Type", "text/css");
-            } else {
-                resp.add_header("Content-Type", "text/plain");
-            }
-        }
+        // mmp默认不设置body，这里html会被设置成plain，url上也看不出html特征
+        // if (resp.body().starts_with("<!DOCTYPE html") ||
+        //     req.uri().ends_with(".html")) {
+        //     resp.add_header("Content-Type", "text/html");
+        // } else if (req.uri().ends_with(".js")) {
+        //     resp.add_header("Content-Type", "application/javascript");
+        // } else if (req.uri().ends_with(".css")) {
+        //     resp.add_header("Content-Type", "text/css");
+        // } else {
+        //     resp.add_header("Content-Type", "text/plain");
+        // }
     });
 }
 
@@ -129,6 +141,7 @@ EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_
     initRouter();
 
     initLogger();
+    initUserService();  // 初始化用户服务
     initEpoll();
 }
 
@@ -217,7 +230,7 @@ void EpollServer::handleRead(int fd) {
     auto& http_conn = connections_[fd];
 
     // if read success
-    LOG_INFO("[EpollServer] Reading from client: {:s}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    LOG_INFO("[EpollServer] Http conn coming from client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
     if (http_conn->ReadOnce()) {
         // 不要用引用捕获局部变量，比如fd
         thread_pool_.pushTask([this, fd = fd]() {
@@ -244,7 +257,7 @@ void EpollServer::handleWrite(int fd) {
 
     auto timer = timer_handles_[fd];
 
-    LOG_INFO("[EpollServer] Writing to client: {:s}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
+    LOG_INFO("[EpollServer] Resp to client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
     // if keep connection
     if (http_conn->WriteAll()) {
         // Actually no write/read work need to be submitted to thread pool, it's for pure computation

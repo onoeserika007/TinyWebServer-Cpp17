@@ -33,6 +33,9 @@ private:
     void initHttpPreHandlers();
     void initHttpPostHandlers();
 
+    // services
+    void initUserService();
+
 private:
     int server_fd_;
     int epoll_fd_;
