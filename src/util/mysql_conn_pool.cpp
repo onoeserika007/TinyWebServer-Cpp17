@@ -20,12 +20,12 @@ MySQLConnectionPool& MySQLConnectionPool::Instance() {
 bool MySQLConnectionPool::init() {
     auto& config = ConfigManager::Instance();
     
-    host_ = config.getMySQLHost();
-    user_ = config.getMySQLUser();
-    pwd_ = config.getMySQLPassword();
-    db_name_ = config.getMySQLDatabase();
-    port_ = config.getMySQLPort();
-    max_conn_ = config.getMySQLPoolSize();
+    host_ = config.get<std::string>("mysql.host", "localhost");
+    user_ = config.get<std::string>("mysql.user", "root");
+    pwd_ = config.get<std::string>("mysql.password", "123456");
+    db_name_ = config.get<std::string>("mysql.database", "webserver_db");
+    port_ = config.get<int>("mysql.port", 3306);
+    max_conn_ = config.get<int>("mysql.pool_size", 8);
     curr_conn_ = 0;
     
     for (int i = 0; i < max_conn_; ++i) {

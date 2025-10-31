@@ -27,7 +27,7 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 
 # third party
-add_subdirectory(${PROJECT_SOURCE_DIR}/thirdparty/basic_libs)
+add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/basic_libs)
 
 # core
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/webserver)
