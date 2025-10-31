@@ -1,3 +1,4 @@
-[submodule "thirdparty/basic_libs"]
-	path = thirdparty/basic_libs
+[submodule "third_party/basic_libs"]
+	path = third_party/basic_libs
 	url = git@github.com:onoeserika007/basic_libs.git
+	branch = main
