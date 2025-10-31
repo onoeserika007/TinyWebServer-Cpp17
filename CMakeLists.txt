@@ -27,10 +27,9 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 link_directories(${PROJECT_SOURCE_DIR}/lib)
 
 # third party
-add_subdirectory(${PROJECT_SOURCE_DIR}/thirdparty/jsoncpp)
+add_subdirectory(${PROJECT_SOURCE_DIR}/thirdparty/basic_libs)
 
 # core
-add_subdirectory(${PROJECT_SOURCE_DIR}/src/base)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/webserver)
 add_subdirectory(${PROJECT_SOURCE_DIR}/src/util)
 
