@@ -100,10 +100,7 @@ void EpollServer::initHttpPreHandlers() {
         bool keep_alive = (req.version() == "HTTP/1.1" && req.keep_alive()) ||
                           (req.version() == "HTTP/1.0" && req.keep_alive());
 
-        if (keep_alive) {
-            resp.set_keep_alive();
-        }
-
+        resp.set_keep_alive(keep_alive);
     });
 
     HttpConnection::add_pre_handler([](const HttpRequest& req, HttpResponse& resp) {
@@ -152,19 +149,21 @@ EpollServer::~EpollServer() {
 
 // public
 void EpollServer::eventloop() {
-    std::vector<epoll_event> events(10); // 用于保存 epoll 返回的事件
+    std::vector<epoll_event> events(10);
+    auto& time_mgr = TimerWheel::getInst();
 
     while (true) {
-        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), -1);
-        if (num_events == -1) {
-            if (errno == EINTR) {
-                continue; // 被中断，忽略
-            } else {
-                std::cerr << "epoll_wait failed: " << strerror(errno) << std::endl;
-                break;
+        // dynamically update tick_interval
+        auto tick_interval = time_mgr.nextTimeoutMs();
+        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), tick_interval);
+        if (num_events < 0) {
+            if (errno != EINTR) {
+                LOG_ERROR("epoll_wait failed: {}", strerror(errno));
             }
+            break;
         }
 
+        // handle epoll
         for (int i = 0; i < num_events; ++i) {
             int fd = events[i].data.fd;
 
@@ -179,6 +178,9 @@ void EpollServer::eventloop() {
                 handleWrite(fd);
             }
         }
+
+        // real tick check inside
+        time_mgr.tick();
     }
 }
 
@@ -206,6 +208,15 @@ void EpollServer::acceptConnections() {
         if (!connections_[client_fd]) {
             connections_[client_fd] = std::make_unique<HttpConnection>();
         }
+
+        {
+            auto client_ip = std::string(inet_ntoa(client_addr.sin_addr));
+            if (!client_ips_.contains(client_ip)) {
+                client_ips_.insert(client_ip);
+                LOG_INFO("Got new client ip: {}", client_ip);
+            }
+        }
+        LOG_DEBUG("Init new connection fd:{}", client_fd);
         connections_[client_fd]->Init(client_fd, epoll_fd_, client_addr);
 
         if (timer_handles_.count(client_fd)) {
@@ -213,7 +224,8 @@ void EpollServer::acceptConnections() {
         }
 
         // destroy connection when time out
-        timer_handles_[client_fd] = timer_manager_.addTimer(15000, [this, fd = client_fd]() {
+        timer_handles_[client_fd] = timer_manager_.addTimer(15, [this, fd = client_fd]() {
+            LOG_INFO("Timer cleared fd:{}", fd);
             connections_[fd]->Destroy();
             timer_handles_.erase(fd);
         });
@@ -243,8 +255,10 @@ void EpollServer::handleRead(int fd) {
     } else {
         // TODO callback
         if (timer) {
-            timer_manager_.triggerNow(timer);
+            timer_manager_.cancel(timer);
+            timer_handles_.erase(fd);
         }
+        connections_[fd]->Destroy();
     }
 }
 
@@ -259,7 +273,7 @@ void EpollServer::handleWrite(int fd) {
 
     LOG_DEBUG("[EpollServer] Resp to client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
     // if keep connection
-    if (http_conn->WriteAll()) {
+    if (http_conn->WriteOnce()) {
         // Actually no write/read work need to be submitted to thread pool, it's for pure computation
         // TODO timer
         // Keep Alive
@@ -269,7 +283,9 @@ void EpollServer::handleWrite(int fd) {
     } else {
         // TODO callback, now close connection
         if (timer) {
-            timer_manager_.triggerNow(timer);
+            timer_manager_.cancel(timer);
+            timer_handles_.erase(fd);
         }
+        connections_[fd]->Destroy();
     }
 }

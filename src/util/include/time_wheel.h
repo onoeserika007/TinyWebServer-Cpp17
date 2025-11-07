@@ -27,6 +27,7 @@ public:
         Callback cb;
         bool repeat = false;
         bool canceled = false;
+        size_t slot = 0;    // record to do quick remove
     };
 
     static TimerWheel& getInst() {
@@ -43,20 +44,16 @@ public:
         return addTimer(ms, std::move(cb), repeat);
     }
 
-    // 刷新：重新放回时间轮（例如 HTTP keepalive）
     void refresh(std::shared_ptr<Timer> timer);
 
-    // 立即触发并弹出
     void triggerNow(std::shared_ptr<Timer> timer);
 
-    // 取消
     void cancel(std::shared_ptr<Timer> timer);
 
-    // 时间推进：外部定期调用（比如每 100ms）
     void tick();
 
-    // 获取下次 tick 间隔（用于 epoll_wait 超时）
-    int nextTimeoutMs() const { return static_cast<int>(tick_interval_.count()); }
+    // for epoll_wait timeout
+    int nextTimeoutMs() const;
 
     // 停止
     void stop() { running_ = false; }
@@ -81,6 +78,7 @@ private:
     size_t current_slot_;
     std::mutex mtx_;
     std::atomic<bool> running_;
+    TimePoint last_tick_time_{Clock::now()};
 };
 
 

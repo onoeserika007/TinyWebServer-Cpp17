@@ -11,7 +11,7 @@
         "write_timeout": 30
     },
     "server": {
-        "port": 9007,
+        "port": 8080,
         "worker_threads": 8,
         "max_connections": 10000,
         "timeout_ms": 10000,
