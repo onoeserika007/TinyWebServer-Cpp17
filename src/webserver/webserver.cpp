@@ -133,6 +133,7 @@ EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_
 
     // http conns
     connections_.resize(MAX_FD);
+    timer_handles_.reserve(10000);  // 预分配 map 空间，减少 rehash
     initHttpPreHandlers();
     initHttpPostHandlers();
     initRouter();
@@ -149,7 +150,7 @@ EpollServer::~EpollServer() {
 
 // public
 void EpollServer::eventloop() {
-    std::vector<epoll_event> events(10);
+    std::vector<epoll_event> events(1024);  // 增大到 1024，减少系统调用次数
     auto& time_mgr = TimerWheel::getInst();
 
     while (true) {
