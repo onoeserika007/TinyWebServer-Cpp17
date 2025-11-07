@@ -67,9 +67,7 @@ void HttpResponse::set_file_with_range(std::string filepath, size_t start, size_
     file_size_ = length;
 }
 
-void HttpResponse::set_close() { close_connection_ = true; }
-
-void HttpResponse::set_keep_alive() { close_connection_ = false; }
+void HttpResponse::set_keep_alive(bool enable) { close_connection_ = !enable; }
 
 bool HttpResponse::keep_alive() const { return !close_connection_; }
 

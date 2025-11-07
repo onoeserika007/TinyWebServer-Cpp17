@@ -34,13 +34,13 @@ namespace EpollUtil {
 
         if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
             LOG_ERROR("Failed to add client socket to epoll: errno={:d}, error: {:s}", errno, strerror(errno));
-            close(fd);
+            // epoll 不应该管理fd生命周期
         }
     }
 
     void removeFd(int epoll_fd, int fd) {
         epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, 0);
-        close(fd);
+        // epoll 不应该管理fd生命周期
     }
 
     void modFd(int epoll_fd, int fd, int ev, bool edge_trig) {

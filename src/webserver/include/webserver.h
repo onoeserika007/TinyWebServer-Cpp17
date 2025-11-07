@@ -7,6 +7,8 @@
 
 
 #include <string>
+#include <unordered_set>
+
 #include "http_conn.h"
 #include "threadpool.h"
 #include "time_wheel.h"
@@ -57,6 +59,9 @@ private:
 
     // http connections
     std::vector<std::unique_ptr<HttpConnection>> connections_;
+
+    // Debug
+    std::unordered_set<std::string> client_ips_;
 };
 
 

@@ -29,8 +29,11 @@ bool InputBuffer::read_et(int fd) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             break; // 正常退出
         } else {
-            LOG_ERROR("[InputBuffer] Read error: {:s}", strerror(errno));
             success = false;
+            if (errno == ECONNRESET) {
+                break;
+            }
+            LOG_ERROR("[InputBuffer] Read error: {:s}", strerror(errno));
             break;
         }
     }

@@ -177,6 +177,9 @@ ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpReq
     } else if (path.starts_with("https://")) {
         auto slash = path.find('/', 8);
         path = slash != std::string_view::npos ? path.substr(slash) : "/";
+    } else if (path.starts_with("/")) {
+        auto slash = path.find('/', 0);
+        path = slash != std::string_view::npos ? path.substr(slash) : "/";
     }
 
     // 然后从路径中分离查询参数
@@ -206,7 +209,7 @@ ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpReq
     }
 
     // 版本检查
-    if (!iequals(version, "HTTP/1.1")) {
+    if (!iequals(version, "HTTP/1.1") && !iequals(version, "HTTP/1.0")) {
         return ParseResult::BAD_REQUEST;
     }
     
@@ -236,6 +239,8 @@ ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpReque
         if (iequals(key, "Connection")) {
             if (iequals(value, "keep-alive")) {
                 req.set_keep_alive(true);
+            } else if (iequals(value, "close")) {
+                req.set_keep_alive(false);
             }
         } else if (iequals(key, "Content-Length")) {
             try {

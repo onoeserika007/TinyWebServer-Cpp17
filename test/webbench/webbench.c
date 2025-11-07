@@ -422,10 +422,19 @@ void benchcore(const char *host,const int port,const char *req)
        return;
     }
     s=Socket(host,port);                          
-    if(s<0) { failed++;continue;} 
-    if(rlen!=write(s,req,rlen)) {failed++;close(s);continue;}
+    if(s<0) {
+        fprintf(stderr,"Correcting failed by signal\n");
+        failed++;continue;
+    }
+    if(rlen!=write(s,req,rlen)) {
+        fprintf(stderr,"Writing failed by signal\n");
+        failed++;close(s);continue;
+    }
     if(http10==0) 
-	    if(shutdown(s,1)) { failed++;close(s);continue;}
+	    if(shutdown(s,1)) {
+	        fprintf(stderr,"Shutdown failed by signal\n");
+	        failed++;close(s);continue;
+	    }
     if(force==0) 
     {
             /* read all available data from socket */
@@ -435,7 +444,8 @@ void benchcore(const char *host,const int port,const char *req)
 	      i=read(s,buf,1500);
               /* fprintf(stderr,"%d\n",i); */
 	      if(i<0) 
-              { 
+              {
+	          fprintf(stderr,"Read failed by signal\n");
                  failed++;
                  close(s);
                  goto nexttry;
@@ -446,7 +456,10 @@ void benchcore(const char *host,const int port,const char *req)
 			       bytes+=i;
 	    }
     }
-    if(close(s)) {failed++;continue;}
+    if(close(s)) {
+        fprintf(stderr,"Close failed by signal\n");
+        failed++;continue;
+    }
     speed++;
  }
 }

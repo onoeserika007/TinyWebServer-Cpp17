@@ -44,12 +44,15 @@ public:
     }
     void Destroy();
     bool ReadOnce();
-    bool WriteAll();
+    bool WriteOnce();
     void ProcessHttp();
 
 private:
     static bool PreHandlersCheck(const HttpRequest& request, HttpResponse& response);
     static bool PostHandlersCheck(const HttpRequest& request, HttpResponse& response);
+    
+    void BeginGracefulClose(); // 开始优雅关闭
+    
     int epoll_fd_ {-1};
     int conn_fd_ {-1};
     sockaddr_in client_addr_;
@@ -67,6 +70,7 @@ private:
 
     // options
     bool use_edge_trig_{};
+    bool closing_ {false}; // 是否正在优雅关闭
 };
 
 #endif // HTTP_CONN_H

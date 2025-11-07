@@ -10,6 +10,7 @@
 
 #include <fcntl.h>
 #include <sys/uio.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <iostream>
 #include <netinet/in.h>
@@ -42,10 +43,24 @@ void HttpConnection::Init() {
     read_buffer_.clear();
     parser_.reset();
     response_.reset(); // 确保HttpResponse也被正确初始化
+    closing_ = false;
 }
 
 void HttpConnection::Destroy() {
+    if (conn_fd_ == -1) {
+        return;
+    }
+    
+    // 从 epoll 移除
     EpollUtil::removeFd(epoll_fd_, conn_fd_);
+    
+    // 直接关闭（让内核处理 FIN）
+    // 如果还有未发送的数据，内核会先发送完再发送 FIN
+    if (close(conn_fd_) < 0) {
+        LOG_ERROR("Closing error: {}, fd:{}", strerror(errno), conn_fd_);
+    } else {
+        LOG_DEBUG("Close success, fd:{}", conn_fd_);
+    }
     conn_fd_ = -1;
 }
 
@@ -62,16 +77,31 @@ HttpStatus to_http_status(ParseResult result) {
 }
 
 bool HttpConnection::ReadOnce() {
-    // if need more read
+    // if is gracefully closing
+    // if (closing_) {
+    //     char buf[1];
+    //     ssize_t n = recv(conn_fd_, buf, sizeof(buf), MSG_PEEK);
+    //     if (n == 0) {
+    //         LOG_INFO("Gracefully closing");
+    //         return false;
+    //     } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+    //         // no fin yet
+    //         return true;
+    //     } else {
+    //         // error
+    //         return false;
+    //     }
+    // }
+    
+    // normal
     if (!read_buffer_.read_from(conn_fd_, use_edge_trig_)) {
         // read buffer overflow
-        Destroy();
         return false;
     }
     return true;
 }
 
-bool HttpConnection::WriteAll() {
+bool HttpConnection::WriteOnce() {
     WriteResult result = write_buffer_.write_to(conn_fd_);
 
     switch (result) {
@@ -85,7 +115,14 @@ bool HttpConnection::WriteAll() {
                 EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
                 return true; // 不销毁连接
             } else {
-                return false; // 销毁连接
+                // // 需要关闭连接：开始优雅关闭流程
+                // BeginGracefulClose();
+                // return true; // 暂时不销毁，等待对端关闭
+                if (fcntl(conn_fd_, F_GETFD) < 0) {
+                    LOG_ERROR("Fd:{} has been closed before you do!, err:{}", conn_fd_, strerror(errno));
+                }
+                LOG_DEBUG("Close for demand, fd:{}", conn_fd_);
+                return false;
             }
 
         case WriteResult::CONTINUE:
@@ -95,11 +132,24 @@ bool HttpConnection::WriteAll() {
 
         case WriteResult::ERROR:
             write_buffer_.unmap_if_needed();
+            LOG_ERROR("Close for write error, fd:{}", conn_fd_);
             return false; // 销毁连接
     }
 
     // dummy
+    LOG_INFO("Close for write res no match, fd:{}", conn_fd_);
     return false;
+}
+
+void HttpConnection::BeginGracefulClose() {
+    // 关闭写端，发送 FIN 给客户端
+    shutdown(conn_fd_, SHUT_WR);
+    
+    // 标记为正在关闭
+    closing_ = true;
+    
+    // 注册 EPOLLIN，等待客户端的 FIN
+    EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
 }
 
 bool HttpConnection::PreHandlersCheck(const HttpRequest& request, HttpResponse& response_) {
@@ -125,7 +175,7 @@ void HttpConnection::ProcessHttp() {
 
     HttpRequest request;
     ParseResult parse_result = parser_.parse({read_buffer_.data(), read_buffer_.readable_bytes()}, request);
-    LOG_INFO("[HttpConnection] Processing request uri:{}", request.uri());
+    LOG_DEBUG("[HttpConnection] Processing request uri:{}, fd:{}, parse_res: {}", request.uri(), conn_fd_, static_cast<int>(parse_result));
     response_.reset();
 
     switch (parse_result) {
@@ -133,12 +183,16 @@ void HttpConnection::ProcessHttp() {
             read_buffer_.retrieve(parser_.consumed_bytes()); // 移动读指针
 
             if (!PreHandlersCheck(request, response_)) {
+                LOG_DEBUG("Conn fd:{} Pre-handle Check not Passed.", conn_fd_);
                 break;
             }
 
             // handle
             if (!response_.is_handled()) { // 没被拦截
                 HttpRouter::instance().match(request, response_); // 处理业务逻辑
+                LOG_DEBUG("Conn req fd:{} handled.", conn_fd_);
+            } else {
+                LOG_DEBUG("Conn fd:{} Intercepted.", conn_fd_);
             }
 
             PostHandlersCheck(request, response_);
@@ -146,10 +200,12 @@ void HttpConnection::ProcessHttp() {
         case ParseResult::INCOMPLETE:
             // 继续等待
             EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
+            LOG_DEBUG("Conn fd:{} Incomplete, keep waiting.", conn_fd_);
             return;
         default:
             // 统一错误处理
             response_.set_error_page(to_http_status(parse_result));
+            LOG_DEBUG("Conn fd:{} Set Error Page.", conn_fd_);
             break;
     }
 

@@ -36,8 +36,7 @@ public:
     void set_file(std::string filepath); // 触发 mmap + writev
     void set_file_with_range(std::string filepath, size_t start, size_t length); // 支持范围请求
     void set_error_page(HttpStatus code);
-    void set_close();                    // 不启用 keep-alive
-    void set_keep_alive();
+    void set_keep_alive(bool enable);
     void set_handled();
 
     bool is_error() const;        // 是否是错误响应（4xx/5xx）
@@ -53,6 +52,7 @@ public:
     // 提供给 OutputBuffer 的接口
     const char* response_data() const { return resp_buf_.data(); }
     size_t response_length() const { return resp_buf_.size(); }
+    std::string response() const { return std::string {resp_buf_.begin(), resp_buf_.end()}; }
     const char* file_address() const { return file_addr_; }
     size_t file_size() const { return file_size_; }
 
