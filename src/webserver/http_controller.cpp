@@ -104,7 +104,7 @@ namespace HttpController {
 
     // 主页（判断页面）
     void showJudgePage(const HttpRequest& req, HttpResponse& resp) {
-        LOG_INFO("[HttpController] Showing judge page.");
+        LOG_DEBUG("[HttpController] Showing judge page.");
         resp.set_file(kDocRoot + std::string("/judge.html"));
     }
     
