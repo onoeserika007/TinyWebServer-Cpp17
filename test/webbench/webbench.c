@@ -18,7 +18,7 @@
 #include "socket.c"
 #include <unistd.h>
 #include <sys/param.h>
-#include <rpc/types.h>
+// #include <rpc/types.h>
 #include <getopt.h>
 #include <strings.h>
 #include <time.h>
@@ -423,16 +423,16 @@ void benchcore(const char *host,const int port,const char *req)
     }
     s=Socket(host,port);                          
     if(s<0) {
-        fprintf(stderr,"Correcting failed by signal\n");
+        // fprintf(stderr,"Connecting failed by signal\n");
         failed++;continue;
     }
     if(rlen!=write(s,req,rlen)) {
-        fprintf(stderr,"Writing failed by signal\n");
+        // fprintf(stderr,"Writing failed by signal\n");
         failed++;close(s);continue;
     }
     if(http10==0) 
 	    if(shutdown(s,1)) {
-	        fprintf(stderr,"Shutdown failed by signal\n");
+	        // fprintf(stderr,"Shutdown failed by signal\n");
 	        failed++;close(s);continue;
 	    }
     if(force==0) 
@@ -445,7 +445,7 @@ void benchcore(const char *host,const int port,const char *req)
               /* fprintf(stderr,"%d\n",i); */
 	      if(i<0) 
               {
-	          fprintf(stderr,"Read failed by signal\n");
+	        //   fprintf(stderr,"Read failed by signal\n");
                  failed++;
                  close(s);
                  goto nexttry;
@@ -457,7 +457,7 @@ void benchcore(const char *host,const int port,const char *req)
 	    }
     }
     if(close(s)) {
-        fprintf(stderr,"Close failed by signal\n");
+        // fprintf(stderr,"Close failed by signal\n");
         failed++;continue;
     }
     speed++;

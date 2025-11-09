@@ -20,7 +20,7 @@ A lightweight, high-performance web server implemented in modern C++20. Features
 ### Quick Start
 1. Install dependencies (Ubuntu/Debian):
 ```bash
-sudo apt install g++-13 libmysqlclient-dev cmake make
+sudo apt install g++-13 libmysqlclient-dev mysql-server cmake make
 ```
 2. Build:
 ```bash
@@ -29,9 +29,19 @@ CC=/usr/bin/gcc-13 CXX=/usr/bin/g++-13 cmake -S . -B build
 cmake --build build -j$(nproc)
 ```
 3. Setup MySQL:
+Launch mysql CLI, if first time, simply 
+```
+sudo mysql
+```
+then
+```sql
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'your_password';
+FLUSH PRIVILEGES;
+```
+then
 ```sql
 CREATE DATABASE webserver_db;
-USE webserver;
+USE webserver_db;
 CREATE TABLE user (
     username CHAR(50) NULL,
     passwd CHAR(50) NULL
@@ -78,23 +88,34 @@ CREATE TABLE user (
 ```
 
 ### API Examples
-Register a new user:
+
+Welcome Page
 ```bash
 curl -X POST http://localhost:8080/register -d "user=test&passwd=123"
 ```
 
+Register a new user:
+```bash
+curl -X POST http://localhost:8080/register -d "user=test&password=123"
+```
+
 Login:
 ```bash
-curl -X POST http://localhost:8080/login -d "user=test&passwd=123"
+curl -X POST http://localhost:8080/login -d "user=test&password=123"
+```
+
+Basic Vedio Download:
+```bash
+curl -O http://47.121.140.208:8080/xxx.mp4
 ```
 
 Stream video with range support:
 ```bash
-curl -H "Range: bytes=1000-2000" http://localhost:8080/video.mp4
+curl -O http://47.121.140.208:8080/xxx.mp4 -H "Range: bytes=0-104855"
 ```
 
 ### Configuration
-See config.json for all available options. Key configurations:
-* Server port and thread count
-* MySQL connection settings
-* Logging configuration (async/sync, log level, rotation)
+See config.json for options. 
+Only the following config is valid now:
+
+* Logging configuration (async/sync, log level)
