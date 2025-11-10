@@ -136,6 +136,12 @@ WriteResult OutputBuffer::write_to(int fd) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     return WriteResult::CONTINUE;
                 }
+                // 客户端主动断开
+                if (errno == EPIPE || errno == ECONNRESET) {
+                    LOG_DEBUG("[OutputBuffer] Client disconnected during header write");
+                    return WriteResult::ERROR;
+                }
+                LOG_ERROR("[OutputBuffer] write error: {}", strerror(errno));
                 return WriteResult::ERROR;
             }
             
@@ -155,7 +161,12 @@ WriteResult OutputBuffer::write_to(int fd) {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     return WriteResult::CONTINUE;
                 }
-                LOG_ERROR("sendfile error: {}", strerror(errno));
+                // 客户端主动断开（正常情况，如视频播放器获取足够数据后断开）
+                if (errno == EPIPE || errno == ECONNRESET) {
+                    LOG_DEBUG("[OutputBuffer] Client disconnected during sendfile (EPIPE/ECONNRESET), errno={}", errno);
+                    return WriteResult::ERROR;
+                }
+                LOG_ERROR("[OutputBuffer] sendfile error: {}", strerror(errno));
                 return WriteResult::ERROR;
             }
             
@@ -171,6 +182,12 @@ WriteResult OutputBuffer::write_to(int fd) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 return WriteResult::CONTINUE;
             }
+            // 客户端主动断开（正常情况，如视频播放器获取足够数据后断开）
+            if (errno == EPIPE || errno == ECONNRESET) {
+                LOG_DEBUG("[OutputBuffer] Client disconnected (EPIPE/ECONNRESET), errno={}", errno);
+                return WriteResult::ERROR;
+            }
+            LOG_ERROR("[OutputBuffer] writev error: {}", strerror(errno));
             return WriteResult::ERROR;
         }
 

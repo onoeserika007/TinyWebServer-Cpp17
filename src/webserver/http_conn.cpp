@@ -137,7 +137,8 @@ bool HttpConnection::WriteOnce() {
 
         case WriteResult::ERROR:
             write_buffer_.reset();
-            LOG_ERROR("Close for write error, fd:{}", conn_fd_);
+            // write error 可能是客户端主动断开（如视频播放器），这是正常的
+            LOG_DEBUG("Close connection due to write error, fd:{}", conn_fd_);
             return false; // 销毁连接
     }
 
