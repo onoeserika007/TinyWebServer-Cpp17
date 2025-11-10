@@ -59,6 +59,14 @@ void HttpResponse::set_content_length(size_t len) {
 void HttpResponse::set_file(std::string filepath) {
     file_path_ = std::move(filepath);
     file_start_ = 0;
+    
+    // 获取文件大小
+    struct stat st{};
+    if (stat(file_path_.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+        file_size_ = st.st_size;
+    } else {
+        file_size_ = 0;
+    }
 }
 
 void HttpResponse::set_file_with_range(std::string filepath, size_t start, size_t length) {
@@ -93,73 +101,6 @@ bool HttpResponse::is_handled() const {
 
 bool HttpResponse::has_header(const std::string& key) const {
     return headers_.find(key) != headers_.end();
-}
-
-bool HttpResponse::map_file() const {
-    if (mapped_) return file_addr_ != nullptr;
-
-    struct stat st{};
-    if (stat(file_path_.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
-        return false;
-    }
-
-    int fd = open(file_path_.c_str(), O_RDONLY);
-    if (fd < 0) return false;
-
-    void* addr = mmap(nullptr,           // 地址由系统决定
-                      st.st_size,        // 映射大小
-                      PROT_READ,         // 只读权限
-                      MAP_PRIVATE,       // 私有映射
-                      fd,                // 文件描述符
-                      0);                // 偏移量
-    close(fd); // mmap 后可关闭 fd
-
-    if (addr == MAP_FAILED) return false;
-
-    file_addr_ = static_cast<char*>(addr);
-    file_size_ = st.st_size;
-    mapped_ = true;
-    return true;
-}
-
-bool HttpResponse::map_file_with_range(size_t start, size_t length) const {
-    if (mapped_) return file_addr_ != nullptr;
-
-    struct stat st{};
-    if (stat(file_path_.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
-        return false;
-    }
-
-    // 验证范围是否有效
-    if (start >= static_cast<size_t>(st.st_size) || start + length > static_cast<size_t>(st.st_size)) {
-        return false;
-    }
-
-    int fd = open(file_path_.c_str(), O_RDONLY);
-    if (fd < 0) return false;
-
-    void* addr = mmap(nullptr,           // 地址由系统决定
-                      length,            // 映射大小为指定长度
-                      PROT_READ,         // 只读权限
-                      MAP_PRIVATE,       // 私有映射
-                      fd,                // 文件描述符
-                      start);            // 偏移量为起始位置
-    close(fd); // mmap 后可关闭 fd
-
-    if (addr == MAP_FAILED) return false;
-
-    file_addr_ = static_cast<char*>(addr);
-    file_size_ = length;
-    mapped_ = true;
-    return true;
-}
-
-void HttpResponse::unmap_if_needed() const {
-    if (mapped_ && file_addr_) {
-        munmap(file_addr_, file_size_);
-        file_addr_ = nullptr;
-        mapped_ = false;
-    }
 }
 
 void HttpResponse::build_response() {
@@ -216,47 +157,30 @@ void HttpResponse::build_response() {
 }
 
 void HttpResponse::finalize() {
-    unmap_if_needed(); // 清理上次可能残留的 mmap
-
-    // 先考虑file，最后build response
+    // 验证文件是否存在（只验证，不打开）
     if (!file_path_.empty()) {
-        bool map_success = false;
-        if (file_start_ != 0 || file_size_ != 0) {
-            // 使用范围映射
-            map_success = map_file_with_range(file_start_, file_size_);
-        } else {
-            // 使用完整文件映射
-            map_success = map_file();
-        }
-        
-        if (!map_success) {
-            // 文件打开失败 → 返回错误页
-            unmap_if_needed();
+        struct stat st{};
+        if (stat(file_path_.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+            // 文件不存在或不可访问 → 返回错误页
             set_status(HttpStatus::NOT_FOUND);
             set_body("<h1>404 Not Found</h1>");
             add_header("Content-Type", "text/html");
-            file_path_.clear(); // 清除 file 模式
+            file_path_.clear();
             file_size_ = 0;
         }
     }
 
     build_response();
-
-    // 注意：不要重复设置Content-Length，因为build_response已经设置了
-    // set_content_length(body_.size() + file_size());
 }
 
 // 缓存构造好的 header
 std::vector<char> resp_buf_;
 
 void HttpResponse::reset() {
-    unmap_if_needed();
-
     status_code_ = HttpStatus::OK;
     reason_phrase_.clear();
     body_.clear();
     file_path_.clear();
-    file_addr_ = nullptr;
     file_size_ = 0;
     file_start_ = 0;
     resp_buf_.clear();
@@ -265,7 +189,6 @@ void HttpResponse::reset() {
 
     handled_ = false;
     close_connection_ = false;
-    mapped_ = false;
 }
 
 void HttpResponse::set_error_page(HttpStatus code) {

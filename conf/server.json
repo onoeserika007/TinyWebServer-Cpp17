@@ -15,7 +15,8 @@
         "worker_threads": 8,
         "max_connections": 10000,
         "timeout_ms": 10000,
-        "document_root": "root"
+        "document_root": "root",
+        "use_sendfile": false
     },
     "log": {
         "visible_level": "info",

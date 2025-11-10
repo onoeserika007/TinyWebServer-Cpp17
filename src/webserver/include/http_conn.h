@@ -52,6 +52,8 @@ private:
     static bool PostHandlersCheck(const HttpRequest& request, HttpResponse& response);
     
     void BeginGracefulClose(); // 开始优雅关闭
+    void make_response_mmap();    // 使用 mmap + writev
+    void make_response_sendfile(); // 使用 sendfile
     
     int epoll_fd_ {-1};
     int conn_fd_ {-1};
@@ -71,6 +73,11 @@ private:
     // options
     bool use_edge_trig_{};
     bool closing_ {false}; // 是否正在优雅关闭
+    bool static use_sendfile_; // true=sendfile, false=mmap+writev
+    
+public:
+    void static set_use_sendfile(bool enable) { use_sendfile_ = enable; }
+    bool static use_sendfile() { return use_sendfile_; }
 };
 
 #endif // HTTP_CONN_H

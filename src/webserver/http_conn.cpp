@@ -22,6 +22,8 @@
 #include "http_router.h"
 #include "logger.h"
 
+bool HttpConnection::use_sendfile_ = false;
+
 void HttpConnection::Init(int fd, int epoll_fd, sockaddr_in client_addr) {
 
     conn_fd_ = fd;
@@ -106,11 +108,9 @@ bool HttpConnection::WriteOnce() {
 
     switch (result) {
         case WriteResult::SUCCESS:
-            write_buffer_.unmap_if_needed();
-
+            write_buffer_.reset();
             // according to request parsing result
             if (!write_buffer_.should_close()) {
-                write_buffer_.reset();
                 Init();
                 EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
                 return true; // 不销毁连接
@@ -131,7 +131,7 @@ bool HttpConnection::WriteOnce() {
             return true; // 不销毁连接
 
         case WriteResult::ERROR:
-            write_buffer_.unmap_if_needed();
+            write_buffer_.reset();
             LOG_ERROR("Close for write error, fd:{}", conn_fd_);
             return false; // 销毁连接
     }
@@ -211,12 +211,36 @@ void HttpConnection::ProcessHttp() {
 
     response_.finalize(); // 准备 header + file
 
-    write_buffer_.set_response(response_.response_data(), response_.response_length(), response_.file_address(),
-                               response_.file_size());
+    // 根据 use_sendfile_ 选择发送方式
+    if (use_sendfile_ && response_.has_file()) {
+        make_response_sendfile();
+    } else {
+        make_response_mmap();
+    }
 
     if (!response_.keep_alive()) {
         write_buffer_.set_close_on_done(true);
     }
 
     EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLOUT, use_edge_trig_);
+}
+
+void HttpConnection::make_response_mmap() {
+    write_buffer_.set_response_with_mmap(
+        response_.response_data(), 
+        response_.response_length(), 
+        response_.file_path(),
+        response_.file_start(),
+        response_.file_size()
+    );
+}
+
+void HttpConnection::make_response_sendfile() {
+    write_buffer_.set_response_with_sendfile(
+        response_.response_data(),
+        response_.response_length(),
+        response_.file_path(),
+        response_.file_start(),
+        response_.file_size()
+    );
 }

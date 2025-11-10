@@ -131,6 +131,10 @@ void EpollServer::initHttpPostHandlers() {
 
 EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_(port) {
 
+    auto& config_manager = ConfigManager::Instance();
+    // Init config
+    HttpConnection::set_use_sendfile(config_manager.get<bool>("server.use_sendfile", true));
+
     // http conns
     connections_.resize(MAX_FD);
     timer_handles_.reserve(10000);  // 预分配 map 空间，减少 rehash

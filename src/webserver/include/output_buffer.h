@@ -6,6 +6,7 @@
 #define OUTPUT_BUFFER_H
 
 #include <fcntl.h>
+#include <string>
 
 
 enum class WriteResult {
@@ -18,7 +19,7 @@ class OutputBuffer {
 
 public:
     OutputBuffer() = default;
-    ~OutputBuffer() { unmap_if_needed(); }
+    ~OutputBuffer() { unmap_if_needed(); close_file_if_needed(); }
 
     // 禁止拷贝，允许移动
     OutputBuffer(const OutputBuffer&) = delete;
@@ -31,14 +32,14 @@ public:
 
     void reset();
 
-    // 设置要发送的内容（由 HttpResponse 调用）
-    void set_response(const char* response_data, size_t response_len,
-                      const char* file_addr, size_t file_size);
+    // 统一的设置接口（应用层只传参数，I/O 层决定如何处理）
+    void set_response_with_mmap(const char* response_data, size_t response_len,
+                                const std::string& file_path, size_t file_offset, size_t file_size);
+    
+    void set_response_with_sendfile(const char* response_data, size_t response_len,
+                                    const std::string& file_path, size_t file_offset, size_t file_size);
 
-    void set_simple_response(const char* data, size_t len);
-
-    // 尝试写一次（只调用一次 writev）
-    // 返回值：-1=错误，0=需要继续写，1=已全部发送完成
+    // 尝试写一次
     WriteResult write_to(int fd);
 
     // 是否还有数据未发送？
@@ -46,6 +47,9 @@ public:
 
     // 清理 mmap 资源
     void unmap_if_needed();
+    
+    // 清理sendfile文件描述符
+    void close_file_if_needed();
 
 private:
     struct iovec iov_[2];
@@ -55,8 +59,16 @@ private:
     size_t bytes_to_send_ = 0;       // 待发送总字节数
     size_t response_bound_ = 0;           // header 长度（即 iov[0].iov_len 初始值）
 
+    // mmap 模式
     void* file_address_ = nullptr;
     bool should_unmap_ = false;
+    
+    // sendfile 模式
+    int file_fd_ = -1;
+    off_t file_offset_ = 0;
+    size_t file_remain_ = 0;
+    
+    bool use_sendfile_ = false;  // true=sendfile, false=mmap
     bool close_connection_ = false;
 };
 
