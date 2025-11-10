@@ -35,6 +35,15 @@ public:
         return inst;
     }
 
+    // 允许创建独立实例（用于 SubReactor）
+    explicit TimerWheel(size_t slots = 256, Duration tick_interval = Duration(100))
+    : slots_(slots),
+      tick_interval_(tick_interval),
+      wheel_(slots),
+      current_slot_(0),
+      running_(true)
+    {}
+
     ~TimerWheel() {
         stop();
     }
@@ -59,19 +68,9 @@ public:
     void stop() { running_ = false; }
 
 private:
-    explicit TimerWheel(size_t slots = 256, Duration tick_interval = Duration(100))
-    : slots_(slots),
-      tick_interval_(tick_interval),
-      wheel_(slots),
-      current_slot_(0),
-      running_(true)
-    {}
-
     auto addTimer(Duration timeout, Callback cb, bool repeat = false) -> std::shared_ptr<Timer>;
 
     void removeLocked(const std::shared_ptr<Timer>& timer);
-
-private:
     size_t slots_;
     Duration tick_interval_;
     std::vector<std::list<std::shared_ptr<Timer>>> wheel_;

@@ -13,12 +13,13 @@
     "server": {
         "host": "0.0.0.0",
         "port": 8080,
+        "use_thread_pool": false,
         "worker_threads": 24,
         "max_connections": 10000,
         "timeout_ms": 10000,
         "document_root": "root",
         "use_sendfile": false,
-        "num_sub_reactor": 8
+        "num_sub_reactor": 4
     },
     "log": {
         "visible_level": "info",

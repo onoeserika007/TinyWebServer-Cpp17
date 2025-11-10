@@ -7,15 +7,18 @@
 #include "logger.h"
 #include "threadpool.h"
 
-#include <sys/eventfd.h>
-#include <unistd.h>
 #include <arpa/inet.h>
 #include <cstring>
+#include <sys/eventfd.h>
+#include <unistd.h>
+
+#include "config_manager.h"
 
 SubReactor::SubReactor(int id) : id_(id) {
     
     connections_.resize(MAX_FD);
     timer_handles_.reserve(10000);
+    use_thread_pool_ = ConfigManager::Instance().get<bool>("server.use_thread_pool", true);
     
     // 创建独立的 epoll 实例
     epoll_fd_ = epoll_create1(0);
@@ -51,9 +54,8 @@ SubReactor::~SubReactor() {
     stop();
     
     // 清理所有定时器，防止回调访问已销毁的成员变量
-    auto& timer_manager = TimerWheel::getInst();
     for (auto& [fd, timer] : timer_handles_) {
-        timer_manager.cancel(timer);
+        timer_wheel_.cancel(timer);
     }
     timer_handles_.clear();
     
@@ -147,13 +149,12 @@ void SubReactor::handleNewConnection() {
         connections_[client_fd]->Init(client_fd, epoll_fd_, client_addr);
         connection_count_.fetch_add(1);
         
-        // 设置超时定时器（使用全局 TimerWheel 单例）
-        auto& timer_manager = TimerWheel::getInst();
+        // 设置超时定时器（使用独立的 TimerWheel）
         if (timer_handles_.count(client_fd)) {
-            timer_manager.cancel(timer_handles_[client_fd]);
+            timer_wheel_.cancel(timer_handles_[client_fd]);
         }
         
-        timer_handles_[client_fd] = timer_manager.addTimer(15, [this, fd = client_fd]() {
+        timer_handles_[client_fd] = timer_wheel_.addTimer(15, [this, fd = client_fd]() {
             LOG_INFO("[SubReactor {}] Timer timeout fd:{}", id_, fd);
             if (connections_[fd]) {
                 connections_[fd]->Destroy();
@@ -174,38 +175,42 @@ void SubReactor::handleRead(int fd) {
     auto& http_conn = connections_[fd];
     
     if (http_conn->ReadOnce()) {
-        FThreadPool::getInst().pushTask([this, fd = fd]() {
-            if (connections_[fd]) {
-                connections_[fd]->ProcessHttp();
-            }
-        });
+        if (use_thread_pool_) {
+            FThreadPool::getInst().pushTask([this, fd = fd]() {
+                if (connections_[fd]) {
+                    connections_[fd]->ProcessHttp();
+                }
+            });
 
-        if (timer) {
-            TimerWheel::getInst().refresh(timer);
+            if (timer) {
+                timer_wheel_.refresh(timer);
+            }
+        } else {
+            // 优化：直接在当前线程处理 HTTP 请求，避免线程池切换开销
+            http_conn->ProcessHttp();
+
+            // 处理完后立即尝试写入响应
+            if (http_conn->WriteOnce()) {
+                // 写入未完成，继续保持连接
+                if (timer) {
+                    timer_wheel_.refresh(timer);
+                }
+            } else {
+                // 写完成或失败，关闭连接
+                if (timer) {
+                    timer_wheel_.cancel(timer);
+                    timer_handles_.erase(fd);
+                }
+                connections_[fd]->Destroy();
+                connections_[fd].reset();
+                connection_count_.fetch_sub(1);
+            }
         }
-        // // 优化：直接在当前线程处理 HTTP 请求，避免线程池切换开销
-        // http_conn->ProcessHttp();
-        //
-        // // 处理完后立即尝试写入响应
-        // if (http_conn->WriteOnce()) {
-        //     // 写入未完成，继续保持连接
-        //     if (timer) {
-        //         TimerWheel::getInst().refresh(timer);
-        //     }
-        // } else {
-        //     // 写完成或失败，关闭连接
-        //     if (timer) {
-        //         TimerWheel::getInst().cancel(timer);
-        //         timer_handles_.erase(fd);
-        //     }
-        //     connections_[fd]->Destroy();
-        //     connections_[fd].reset();
-        //     connection_count_.fetch_sub(1);
-        // }
+
     } else {
         // 读取失败，关闭连接并释放内存
         if (timer) {
-            TimerWheel::getInst().cancel(timer);
+            timer_wheel_.cancel(timer);
             timer_handles_.erase(fd);
         }
         connections_[fd]->Destroy();
@@ -222,15 +227,16 @@ void SubReactor::handleWrite(int fd) {
     auto& http_conn = connections_[fd];
     auto timer = timer_handles_[fd];
     
+    LOG_DEBUG("[SubReactor {}] Handle write fd:{}", id_, fd);
     if (http_conn->WriteOnce()) {
         // 继续保持连接
         if (timer) {
-            TimerWheel::getInst().refresh(timer);
+            timer_wheel_.refresh(timer);
         }
     } else {
         // 写完成或失败，关闭连接并释放内存
         if (timer) {
-            TimerWheel::getInst().cancel(timer);
+            timer_wheel_.cancel(timer);
             timer_handles_.erase(fd);
         }
         connections_[fd]->Destroy();
@@ -245,8 +251,9 @@ void SubReactor::eventLoop() {
     std::vector<epoll_event> events(1024);
     
     while (running_.load()) {
-        // SubReactor 不管理定时器超时，使用固定超时或 -1（阻塞）
-        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), 100);  // 100ms 超时，避免长时间阻塞
+        // 使用 timer_wheel_ 计算超时时间，避免长时间阻塞
+        int timeout = timer_wheel_.nextTimeoutMs();
+        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), timeout);
         
         if (num_events < 0) {
             if (errno == EINTR) {
@@ -270,7 +277,8 @@ void SubReactor::eventLoop() {
             }
         }
         
-        // 定时器 tick 由 MainReactor 统一管理（TimerWheel 是单例）
+        // 定时器 tick（每个 SubReactor 独立管理，无锁！）
+        timer_wheel_.tick();
     }
     
     LOG_DEBUG("[SubReactor {}] Event loop stopped", id_);

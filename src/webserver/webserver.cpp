@@ -188,12 +188,11 @@ SubReactor* EpollServer::selectSubReactor() {
 // public
 void EpollServer::eventloop() {
     std::vector<epoll_event> events(64);  // MainReactor 只监听 server_fd，不需要太多
-    auto& timer_manager = TimerWheel::getInst();
     
     LOG_INFO("[MainReactor] Event loop started");
 
     while (true) {
-        int timeout = timer_manager.nextTimeoutMs();
+        int timeout = timer_wheel_.nextTimeoutMs();
         int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), timeout);
         if (num_events < 0) {
             if (errno == EINTR) {
@@ -212,8 +211,8 @@ void EpollServer::eventloop() {
             }
         }
         
-        // 全局定时器由 MainReactor 统一管理
-        timer_manager.tick();
+        // MainReactor 的独立定时器 tick（当前无定时任务，但保持架构一致）
+        timer_wheel_.tick();
     }
     
     LOG_INFO("[MainReactor] Event loop stopped");

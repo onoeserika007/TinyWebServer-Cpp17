@@ -14,6 +14,7 @@
 #include "http_conn.h"
 #include "threadpool.h"
 #include "sub_reactor.h"
+#include "time_wheel.h"
 
 
 class EpollServer {
@@ -47,6 +48,9 @@ private:
     // Sub Reactors
     std::vector<std::unique_ptr<SubReactor>> sub_reactors_;
     std::atomic<size_t> next_sub_reactor_{0};  // Round-Robin 索引
+
+    // MainReactor 的独立 TimerWheel（虽然目前只管理 accept，但保持架构一致）
+    TimerWheel timer_wheel_;
 
     // Debug
     std::unordered_set<std::string> client_ips_;

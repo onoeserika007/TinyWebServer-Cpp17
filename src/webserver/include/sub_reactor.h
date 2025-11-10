@@ -54,7 +54,8 @@ private:
     std::vector<std::unique_ptr<HttpConnection>> connections_;
     std::atomic<size_t> connection_count_{0};
     
-    // 定时器管理（每个 SubReactor 独立管理）
+    // 定时器管理（每个 SubReactor 独立的 TimerWheel - 无锁！）
+    TimerWheel timer_wheel_;
     std::unordered_map<int, std::shared_ptr<TimerWheel::Timer>> timer_handles_;
     
     // 待添加的新连接队列
@@ -64,6 +65,9 @@ private:
     };
     std::queue<PendingConnection> pending_connections_;
     std::mutex pending_mutex_;  // 保护 pending_connections_
+
+    // config
+    bool use_thread_pool_ {false};
 };
 
 #endif // SUB_REACTOR_H
