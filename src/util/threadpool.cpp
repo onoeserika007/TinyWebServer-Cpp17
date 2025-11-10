@@ -4,7 +4,11 @@
 
 #include "threadpool.h"
 
+#include "config_manager.h"
+#include "logger.h"
+
 FThreadPool::FThreadPool(const size_t threadCount) : threadCnt_(threadCount) {
+    LOG_INFO("Compute ThreadPool init with {} workers", threadCount);
     for (int i = 0; i < threadCnt_; i++) {
         threads_.emplace_back(&FThreadPool::worker, this, i);
     }
@@ -22,7 +26,7 @@ FThreadPool::~FThreadPool() {
 }
 
 FThreadPool &FThreadPool::getInst() {
-    static FThreadPool inst;
+    static FThreadPool inst { static_cast<size_t>(ConfigManager::Instance().get<int>("server.worker_threads", 16)) };
     return inst;
 }
 

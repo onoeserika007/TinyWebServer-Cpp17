@@ -61,6 +61,7 @@ private:
 
     // mmap 模式
     void* file_address_ = nullptr;
+    size_t mmap_size_ = 0;  // mmap 的原始大小，用于 munmap
     bool should_unmap_ = false;
     
     // sendfile 模式

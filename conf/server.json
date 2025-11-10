@@ -11,12 +11,14 @@
         "write_timeout": 30
     },
     "server": {
+        "host": "0.0.0.0",
         "port": 8080,
-        "worker_threads": 8,
+        "worker_threads": 24,
         "max_connections": 10000,
         "timeout_ms": 10000,
         "document_root": "root",
-        "use_sendfile": false
+        "use_sendfile": false,
+        "num_sub_reactor": 8
     },
     "log": {
         "visible_level": "info",

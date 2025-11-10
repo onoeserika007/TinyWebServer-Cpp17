@@ -43,6 +43,7 @@ void HttpConnection::Init(int fd, int epoll_fd, sockaddr_in client_addr) {
 
 void HttpConnection::Init() {
     read_buffer_.clear();
+    write_buffer_.reset();
     parser_.reset();
     response_.reset(); // 确保HttpResponse也被正确初始化
     closing_ = false;
@@ -64,6 +65,10 @@ void HttpConnection::Destroy() {
         LOG_DEBUG("Close success, fd:{}", conn_fd_);
     }
     conn_fd_ = -1;
+
+    // reset buffer resources
+    // eg: mmap failed: Cannot allocate memory
+    Init();
 }
 
 HttpStatus to_http_status(ParseResult result) {

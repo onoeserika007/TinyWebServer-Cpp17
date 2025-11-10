@@ -24,6 +24,7 @@ void OutputBuffer::reset() {
     response_bound_ = 0;
     iov_count_ = 0;
     file_address_ = nullptr;
+    mmap_size_ = 0;
     should_unmap_ = false;
     file_offset_ = 0;
     file_remain_ = 0;
@@ -52,19 +53,35 @@ void OutputBuffer::set_response_with_mmap(const char* response_data, size_t resp
             return;
         }
 
-        void* addr = mmap(nullptr, file_size, PROT_READ, MAP_PRIVATE, fd, file_offset);
+        // mmap 的 offset 必须页对齐（通常 4KB）
+        static const size_t PAGE_SIZE = sysconf(_SC_PAGE_SIZE);  // 通常是 4096
+        size_t aligned_offset = (file_offset / PAGE_SIZE) * PAGE_SIZE;  // 向下对齐到页边界
+        size_t offset_in_page = file_offset - aligned_offset;  // 页内偏移
+        size_t map_size = offset_in_page + file_size;  // 需要 map 的总大小
+
+        void* addr = mmap(
+            nullptr, // 建议映射起始位置
+            map_size, // 映射字节数
+            PROT_READ, // PROT_WRITE | PROT_EXEC（加载可执行代码（如 .so 库）） | PROT_NONE
+            MAP_PRIVATE, // MAP_PRIVATE 私有写时复制，修改不影响原文件 | MAP_SHARED 共享映射，修改会同步到文件，用于进程间通信、修改文件 | MAP_ANONYMOUS
+            fd,
+            aligned_offset // 文件内偏移量
+            );
         close(fd);  // mmap 后可关闭 fd
 
         if (addr == MAP_FAILED) {
-            LOG_ERROR("mmap failed: {}", strerror(errno));
+            LOG_ERROR("mmap failed: {} (offset={}, aligned={}, map_size={})", 
+                      strerror(errno), file_offset, aligned_offset, map_size);
             iov_count_ = 1;
             return;
         }
 
         file_address_ = static_cast<char*>(addr);
+        mmap_size_ = map_size;  // 保存对齐后的大小用于 munmap
         should_unmap_ = true;
 
-        iov_[1].iov_base = file_address_;
+        // iov[1] 指向实际需要发送的数据（跳过页内偏移）
+        iov_[1].iov_base = static_cast<char*>(addr) + offset_in_page;
         iov_[1].iov_len = file_size;
         iov_count_ = 2;
         bytes_to_send_ += file_size;
@@ -177,8 +194,9 @@ WriteResult OutputBuffer::write_to(int fd) {
 
 void OutputBuffer::unmap_if_needed() {
     if (should_unmap_ && file_address_) {
-        munmap(file_address_, static_cast<size_t>(iov_[1].iov_len));
+        munmap(file_address_, mmap_size_);  // 使用原始大小，而不是被修改的 iov_[1].iov_len，否则有可能造成内存泄露
         file_address_ = nullptr;
+        mmap_size_ = 0;
         should_unmap_ = false;
     }
 }
@@ -198,9 +216,11 @@ OutputBuffer::OutputBuffer(OutputBuffer&& other) noexcept
     , bytes_to_send_(other.bytes_to_send_)
     , response_bound_(other.response_bound_)
     , file_address_(other.file_address_)
+    , mmap_size_(other.mmap_size_)
     , should_unmap_(other.should_unmap_) {
     other.reset();
     other.file_address_ = nullptr;
+    other.mmap_size_ = 0;
     other.should_unmap_ = false;
 }
 
@@ -214,10 +234,12 @@ OutputBuffer& OutputBuffer::operator=(OutputBuffer&& other) noexcept {
         bytes_to_send_ = other.bytes_to_send_;
         response_bound_ = other.response_bound_;
         file_address_ = other.file_address_;
+        mmap_size_ = other.mmap_size_;
         should_unmap_ = other.should_unmap_;
 
         other.reset();
         other.file_address_ = nullptr;
+        other.mmap_size_ = 0;
         other.should_unmap_ = false;
     }
     return *this;

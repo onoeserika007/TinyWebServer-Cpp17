@@ -129,15 +129,13 @@ void EpollServer::initHttpPostHandlers() {
     });
 }
 
-EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_(port) {
+EpollServer::EpollServer(const std::string &host, int port, int sub_reactor_count) 
+    : host_(host), port_(port) {
 
     auto& config_manager = ConfigManager::Instance();
     // Init config
     HttpConnection::set_use_sendfile(config_manager.get<bool>("server.use_sendfile", true));
 
-    // http conns
-    connections_.resize(MAX_FD);
-    timer_handles_.reserve(10000);  // 预分配 map 空间，减少 rehash
     initHttpPreHandlers();
     initHttpPostHandlers();
     initRouter();
@@ -145,48 +143,80 @@ EpollServer::EpollServer(const std::string &host, int port) : host_(host), port_
     initLogger();
     initUserService();  // 初始化用户服务
     initEpoll();
+    
+    // 创建 SubReactors
+    LOG_INFO("[MainReactor] Creating {} SubReactors", sub_reactor_count);
+    for (int i = 0; i < sub_reactor_count; ++i) {
+        sub_reactors_.push_back(std::make_unique<SubReactor>(i));
+        sub_reactors_.back()->start();
+    }
+    LOG_INFO("[MainReactor] All SubReactors started");
 }
 
 EpollServer::~EpollServer() {
+    // 停止所有 SubReactors
+    LOG_INFO("[MainReactor] Stopping all SubReactors");
+    for (auto& sub_reactor : sub_reactors_) {
+        sub_reactor->stop();
+    }
+    sub_reactors_.clear();
+    
     close(server_fd_);
     close(epoll_fd_);
+    LOG_INFO("[MainReactor] Shutdown complete");
+}
+
+// 负载均衡：选择连接数最少的 SubReactor
+SubReactor* EpollServer::selectSubReactor() {
+    // Round-Robin（轮询）策略
+    size_t index = next_sub_reactor_.fetch_add(1) % sub_reactors_.size();
+    return sub_reactors_[index].get();
+    
+    // 或者使用最少连接数策略（需要更多同步开销）
+    // SubReactor* selected = sub_reactors_[0].get();
+    // size_t min_conn = selected->getConnectionCount();
+    // for (auto& reactor : sub_reactors_) {
+    //     size_t conn = reactor->getConnectionCount();
+    //     if (conn < min_conn) {
+    //         min_conn = conn;
+    //         selected = reactor.get();
+    //     }
+    // }
+    // return selected;
 }
 
 // public
 void EpollServer::eventloop() {
-    std::vector<epoll_event> events(1024);  // 增大到 1024，减少系统调用次数
-    auto& time_mgr = TimerWheel::getInst();
+    std::vector<epoll_event> events(64);  // MainReactor 只监听 server_fd，不需要太多
+    auto& timer_manager = TimerWheel::getInst();
+    
+    LOG_INFO("[MainReactor] Event loop started");
 
     while (true) {
-        // dynamically update tick_interval
-        auto tick_interval = time_mgr.nextTimeoutMs();
-        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), tick_interval);
+        int timeout = timer_manager.nextTimeoutMs();
+        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), timeout);
         if (num_events < 0) {
-            if (errno != EINTR) {
-                LOG_ERROR("epoll_wait failed: {}", strerror(errno));
+            if (errno == EINTR) {
+                continue;
             }
+            LOG_ERROR("[MainReactor] epoll_wait failed: {}", strerror(errno));
             break;
         }
 
-        // handle epoll
+        // MainReactor 只处理 accept
         for (int i = 0; i < num_events; ++i) {
             int fd = events[i].data.fd;
 
             if (fd == server_fd_) {
-                // 处理新的连接
                 acceptConnections();
-            } else if (events[i].events & EPOLLIN) {
-                // 处理读取事件
-                handleRead(fd);
-            } else if (events[i].events & EPOLLOUT) {
-                // 处理写事件
-                handleWrite(fd);
             }
         }
-
-        // real tick check inside
-        time_mgr.tick();
+        
+        // 全局定时器由 MainReactor 统一管理
+        timer_manager.tick();
     }
+    
+    LOG_INFO("[MainReactor] Event loop stopped");
 }
 
 void EpollServer::acceptConnections() {
@@ -200,97 +230,29 @@ void EpollServer::acceptConnections() {
             }
 
             if (errno == EMFILE) {
-                LOG_ERROR("Failed to accept connection, no more fd is available: errno={:d}, error:{:s}", errno, strerror(errno));
+                LOG_ERROR("[MainReactor] No more fd available: errno={}, error:{}", errno, strerror(errno));
                 break;
             }
 
-            LOG_ERROR("Failed to accept connection: errno={:d}, error:{:s}", errno, strerror(errno));
+            LOG_ERROR("[MainReactor] accept failed: errno={}, error:{}", errno, strerror(errno));
             return;
         }
 
-        // TODO make a connection
-        assert(client_fd >= 0 && client_fd < MAX_FD);
-        if (!connections_[client_fd]) {
-            connections_[client_fd] = std::make_unique<HttpConnection>();
-        }
-
+        // 记录客户端 IP（调试用）
         {
             auto client_ip = std::string(inet_ntoa(client_addr.sin_addr));
             if (!client_ips_.contains(client_ip)) {
                 client_ips_.insert(client_ip);
-                LOG_INFO("Got new client ip: {}", client_ip);
+                LOG_INFO("[MainReactor] New client IP: {}", client_ip);
             }
         }
-        LOG_DEBUG("Init new connection fd:{}", client_fd);
-        connections_[client_fd]->Init(client_fd, epoll_fd_, client_addr);
-
-        if (timer_handles_.count(client_fd)) {
-            timer_manager_.cancel(timer_handles_[client_fd]);
-        }
-
-        // destroy connection when time out
-        timer_handles_[client_fd] = timer_manager_.addTimer(15, [this, fd = client_fd]() {
-            LOG_INFO("Timer cleared fd:{}", fd);
-            connections_[fd]->Destroy();
-            timer_handles_.erase(fd);
-        });
+        
+        // 选择一个 SubReactor 并分发连接
+        SubReactor* reactor = selectSubReactor();
+        reactor->addConnection(client_fd, client_addr);
+        
+        LOG_DEBUG("[MainReactor] Accepted fd:{}, dispatched to SubReactor", client_fd);
     }
 }
 
-void EpollServer::handleRead(int fd) {
-    if (!connections_[fd]) {
-        return;
-    }
-
-    auto timer = timer_handles_[fd];
-
-    auto& http_conn = connections_[fd];
-
-    // if read success
-    LOG_DEBUG("[EpollServer] Http conn coming from client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
-    if (http_conn->ReadOnce()) {
-        // 不要用引用捕获局部变量，比如fd
-        thread_pool_.pushTask([this, fd = fd]() {
-            connections_[fd]->ProcessHttp();
-        });
-
-        if (timer) {
-            timer_manager_.refresh(timer);
-        }
-    } else {
-        // TODO callback
-        if (timer) {
-            timer_manager_.cancel(timer);
-            timer_handles_.erase(fd);
-        }
-        connections_[fd]->Destroy();
-    }
-}
-
-void EpollServer::handleWrite(int fd) {
-    if (!connections_[fd]) {
-        return;
-    }
-
-    auto& http_conn = connections_[fd];
-
-    auto timer = timer_handles_[fd];
-
-    LOG_DEBUG("[EpollServer] Resp to client: {}", inet_ntoa(http_conn->GetClientAddress().sin_addr));
-    // if keep connection
-    if (http_conn->WriteOnce()) {
-        // Actually no write/read work need to be submitted to thread pool, it's for pure computation
-        // TODO timer
-        // Keep Alive
-        if (timer) {
-            timer_manager_.refresh(timer);
-        }
-    } else {
-        // TODO callback, now close connection
-        if (timer) {
-            timer_manager_.cancel(timer);
-            timer_handles_.erase(fd);
-        }
-        connections_[fd]->Destroy();
-    }
-}
+// handleRead 和 handleWrite 已移至 SubReactor，MainReactor 不再需要
