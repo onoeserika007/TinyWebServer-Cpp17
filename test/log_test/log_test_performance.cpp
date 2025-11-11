@@ -47,13 +47,6 @@ int main() {
     std::atomic<int> global_seq{0}; // 仅用于统计总日志数，无锁（原子操作不影响性能）
 
     // 2. 初始化日志库（按性能测试参数配置）
-    Logger::Instance().Init("testlog_perf", // 日志基础名
-                            ENABLE_ASYNC, // 异步/同步模式
-                            LOG_QUEUE_SIZE, // 异步队列大小
-                            8192, // 日志缓冲区大小
-                            LOG_ROTATE_SIZE, // 日志轮转大小（调大避免性能干扰）
-                            0 // 不关闭日志
-    );
 
     std::cout << "===================== 日志性能测试开始 =====================\n";
     std::cout << "测试配置：\n";
@@ -61,7 +54,6 @@ int main() {
     std::cout << "  - 单线程日志数: " << MSGS_PER_THREAD << "\n";
     std::cout << "  - 总日志数: " << TOTAL_LOGS << "\n";
     std::cout << "  - 单条日志payload大小: " << PAYLOAD_SIZE << " 字节\n";
-    std::cout << "  - 日志模式: " << (ENABLE_ASYNC ? "异步" : "同步") << "\n";
     std::cout << "  - 完整性验证: " << (ENABLE_VALIDATION ? "开启" : "关闭") << "\n";
     std::cout << "============================================================\n";
 

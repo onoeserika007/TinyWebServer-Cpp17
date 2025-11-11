@@ -26,8 +26,9 @@
         "async": true,
         "flush_interval": 3,
         "roll_size": 5000000,
-        "path": "log",
-        "to_console": true,
+        "max_queue_size": 10000,
+        "path": "webserver_log",
+        "to_console": false,
         "to_file": true
     }
 }
