@@ -55,11 +55,12 @@ public:
     void clear() { read_end_ = 0; }
 
     // 真正执行读操作（LT/ET 模式在此区分）
-    bool read_from(int fd, bool use_edge_trigger = false);
+    bool read_from(int fd, bool use_edge_trigger = false, bool graceful_closing = false);
 
 private:
     bool read_lt(int fd);
     bool read_et(int fd);
+    bool check_peer_fin(int fd); // 优雅关闭时检查对端 FIN
 };
 
 #endif //INPUT_BUFFER_H

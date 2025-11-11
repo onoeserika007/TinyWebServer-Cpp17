@@ -84,28 +84,8 @@ HttpStatus to_http_status(ParseResult result) {
 }
 
 bool HttpConnection::ReadOnce() {
-    // if is gracefully closing
-    // if (closing_) {
-    //     char buf[1];
-    //     ssize_t n = recv(conn_fd_, buf, sizeof(buf), MSG_PEEK);
-    //     if (n == 0) {
-    //         LOG_INFO("Gracefully closing");
-    //         return false;
-    //     } else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-    //         // no fin yet
-    //         return true;
-    //     } else {
-    //         // error
-    //         return false;
-    //     }
-    // }
-    
-    // normal
-    if (!read_buffer_.read_from(conn_fd_, use_edge_trig_)) {
-        // read buffer overflow
-        return false;
-    }
-    return true;
+    // 统一由 read_buffer 处理正常读取和优雅关闭
+    return read_buffer_.read_from(conn_fd_, use_edge_trig_, closing_);
 }
 
 bool HttpConnection::WriteOnce() {
@@ -120,14 +100,14 @@ bool HttpConnection::WriteOnce() {
                 EpollUtil::modFd(epoll_fd_, conn_fd_, EPOLLIN, use_edge_trig_);
                 return true; // 不销毁连接
             } else {
-                // // 需要关闭连接：开始优雅关闭流程
-                // BeginGracefulClose();
-                // return true; // 暂时不销毁，等待对端关闭
-                if (fcntl(conn_fd_, F_GETFD) < 0) {
-                    LOG_ERROR("Fd:{} has been closed before you do!, err:{}", conn_fd_, strerror(errno));
-                }
-                LOG_DEBUG("Close for demand, fd:{}", conn_fd_);
-                return false;
+                // 需要关闭连接：开始优雅关闭流程
+                BeginGracefulClose();
+                return true; // 暂时不销毁，等待对端关闭
+                // if (fcntl(conn_fd_, F_GETFD) < 0) {
+                //     LOG_ERROR("Fd:{} has been closed before you do!, err:{}", conn_fd_, strerror(errno));
+                // }
+                // LOG_DEBUG("Close for demand, fd:{}", conn_fd_);
+                // return false;
             }
 
         case WriteResult::CONTINUE:
