@@ -144,4 +144,5 @@ void HttpRouter::RegisterRoutes() {
     router.get("*.mp4", StaticFileController::serveStaticFile);
     router.get("*.avi", StaticFileController::serveStaticFile);
     router.get("*.ico", StaticFileController::serveStaticFile);
+    router.get("*.zip", StaticFileController::serveStaticFile);
 }

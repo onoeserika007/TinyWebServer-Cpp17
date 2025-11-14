@@ -28,7 +28,7 @@
         "roll_size": 5000000,
         "max_queue_size": 10000,
         "path": "webserver_log",
-        "to_console": false,
+        "to_console": true,
         "to_file": true
     }
 }

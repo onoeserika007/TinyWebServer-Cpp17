@@ -30,7 +30,6 @@
 #include "static_file_controller.h"
 
 void EpollServer::initLogger() {
-    Logger::Instance().Init("webserver", true, 10000, 8192, 10 * 1024 * 1024, 0);
     LOG_INFO("[EpollServer] - Log Init {:d}", 114514);
 }
 
