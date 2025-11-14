@@ -135,34 +135,7 @@ void SubReactor::handleNewConnection() {
     while (!local_queue.empty()) {
         auto [client_fd, client_addr] = local_queue.front();
         local_queue.pop();
-        
-        if (client_fd < 0 || client_fd >= MAX_FD) {
-            LOG_ERROR("[SubReactor {}] Invalid fd: {}", id_, client_fd);
-            continue;
-        }
-        
-        // 创建 HttpConnection
-        if (!connections_[client_fd]) {
-            connections_[client_fd] = std::make_unique<HttpConnection>();
-        }
-        
-        connections_[client_fd]->Init(client_fd, epoll_fd_, client_addr);
-        connection_count_.fetch_add(1);
-        
-        // 设置超时定时器（使用独立的 TimerWheel）
-        if (timer_handles_.count(client_fd)) {
-            timer_wheel_.cancel(timer_handles_[client_fd]);
-        }
-        
-        timer_handles_[client_fd] = timer_wheel_.addTimer(15, [this, fd = client_fd]() {
-            LOG_INFO("[SubReactor {}] Timer timeout fd:{}", id_, fd);
-            if (connections_[fd]) {
-                connections_[fd]->Destroy();
-                connections_[fd].reset();  // 释放 HttpConnection 内存
-            }
-            timer_handles_.erase(fd);
-            connection_count_.fetch_sub(1);
-        });
+
     }
 }
 

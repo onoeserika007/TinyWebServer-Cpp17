@@ -19,7 +19,8 @@
         "timeout_ms": 10000,
         "document_root": "root",
         "use_sendfile": false,
-        "num_sub_reactor": 4
+        "num_sub_reactor": 4,
+        "use_reactor": true
     },
     "log": {
         "visible_level": "info",

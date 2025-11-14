@@ -8,24 +8,26 @@
 
 #include <string>
 #include <unordered_set>
-#include <memory>
-#include <vector>
 
 #include "http_conn.h"
 #include "threadpool.h"
-#include "sub_reactor.h"
 #include "time_wheel.h"
 
 
+class TimerWheel;
+constexpr const int MAX_FD = 65536;
+
 class EpollServer {
 public:
-    EpollServer(const std::string &host, int port, int sub_reactor_count = 4);
+    EpollServer(const std::string &host, int port);
     ~EpollServer();
 
     void eventloop();
 
 private:
     void acceptConnections();
+    void handleRead(int fd);
+    void handleWrite(int fd);
 
     void initLogger();
     void initEpoll();
@@ -35,22 +37,25 @@ private:
 
     // services
     void initUserService();
-    
-    // 负载均衡：选择连接数最少的 SubReactor
-    SubReactor* selectSubReactor();
 
 private:
     int server_fd_;
-    int epoll_fd_;  // MainReactor 的 epoll（只监听 server_fd）
+    int epoll_fd_;
     std::string host_;
     int port_;
 
-    // Sub Reactors
-    std::vector<std::unique_ptr<SubReactor>> sub_reactors_;
-    std::atomic<size_t> next_sub_reactor_{0};  // Round-Robin 索引
+    // Config
+    bool use_reactor_ {true};
 
-    // MainReactor 的独立 TimerWheel（虽然目前只管理 accept，但保持架构一致）
-    TimerWheel timer_wheel_;
+    // thread pool
+    FThreadPool &thread_pool_ = FThreadPool::getInst();
+
+    // timer
+    TimerWheel &timer_manager_ = TimerWheel::getInst();
+    std::unordered_map<int, std::shared_ptr<TimerWheel::Timer>> timer_handles_;
+
+    // http connections
+    std::vector<std::unique_ptr<HttpConnection>> connections_;
 
     // Debug
     std::unordered_set<std::string> client_ips_;

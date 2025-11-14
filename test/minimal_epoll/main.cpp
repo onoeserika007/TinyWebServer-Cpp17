@@ -13,7 +13,7 @@ int main() {
         auto host = config_mgr.get<std::string>("server.host", "127.0.0.1");
         auto port = config_mgr.get<int>("server.port", 8080);
         auto num_sub_reactor = config_mgr.get<int>("server.num_sub_reactor", 4);
-        EpollServer server(host, port, num_sub_reactor);
+        EpollServer server(host, port);
         server.eventloop();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;
