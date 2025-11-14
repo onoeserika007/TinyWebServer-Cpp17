@@ -2,3 +2,6 @@
 	path = third_party/basic_libs
 	url = git@github.com:onoeserika007/basic_libs.git
 	branch = main
+[submodule "third_party/fiber_lib"]
+	path = third_party/fiber_lib
+	url = git@github.com:onoeserika007/fiber_lib.git
