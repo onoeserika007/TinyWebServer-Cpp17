@@ -3,8 +3,8 @@
 //
 
 #include "epoll_util.h"
-#include "logger.h"
 #include <cstring>
+#include "serika/basic/logger.h"
 
 
 namespace EpollUtil {
@@ -44,7 +44,7 @@ namespace EpollUtil {
     }
 
     void modFd(int epoll_fd, int fd, int ev, bool edge_trig) {
-        epoll_event event {};
+        epoll_event event{};
         event.data.fd = fd;
         event.events = ev | EPOLLONESHOT | EPOLLRDHUP;
 
@@ -55,4 +55,4 @@ namespace EpollUtil {
         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
     }
 
-}
+} // namespace EpollUtil

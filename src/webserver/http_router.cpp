@@ -2,12 +2,12 @@
 // Created by inory on 10/29/25.
 //
 
-#include "http_router.h"
-#include "http_request.h"
-#include "http_response.h"
-#include "http_controller.h"
-#include "static_file_controller.h"
+#include "webserver/http_router.h"
 #include <fnmatch.h>
+#include "webserver/controller/http_controller.h"
+#include "webserver/controller/static_file_controller.h"
+#include "webserver/http_request.h"
+#include "webserver/http_response.h"
 
 void HttpRouter::get(std::string path, HttpHandlerFunc handler) {
     // 查找现有路由或创建新路由
@@ -101,7 +101,7 @@ bool HttpRouter::match(const HttpRequest &req, HttpResponse &resp) const {
 }
 
 void HttpRouter::RegisterRoutes() {
-    auto& router = HttpRouter::instance();
+    auto &router = HttpRouter::instance();
 
     // 首页
     router.get("/", HttpController::showJudgePage);
@@ -112,28 +112,28 @@ void HttpRouter::RegisterRoutes() {
     router.get("/static/*", HttpController::serveStaticFile);
 
     // 注册相关 - 同一路径处理GET和POST
-    router.get("/register", HttpController::handleRegister);  // 显示注册页面或处理注册请求
-    router.post("/register", HttpController::handleRegister);   // 处理注册请求
+    router.get("/register", HttpController::handleRegister); // 显示注册页面或处理注册请求
+    router.post("/register", HttpController::handleRegister); // 处理注册请求
 
     // 登录相关 - 同一路径处理GET和POST
-    router.get("/login", HttpController::handleLogin);    // 显示登录页面或处理登录请求
-    router.post("/login", HttpController::handleLogin);     // 处理登录请求
+    router.get("/login", HttpController::handleLogin); // 显示登录页面或处理登录请求
+    router.post("/login", HttpController::handleLogin); // 处理登录请求
 
     // 登录后的欢迎页面
-    router.get("/welcome", HttpController::showWelcomePage);  // 欢迎页面
-    router.get("/welcome.html", HttpController::showWelcomePage);  // 欢迎页面
+    router.get("/welcome", HttpController::showWelcomePage); // 欢迎页面
+    router.get("/welcome.html", HttpController::showWelcomePage); // 欢迎页面
 
     // 其他页面 - 业务逻辑路由
-    router.get("/picture", HttpController::showPicturePage);  // 图片页
-    router.get("/video", HttpController::showVideoPage);    // 视频页
+    router.get("/picture", HttpController::showPicturePage); // 图片页
+    router.get("/video", HttpController::showVideoPage); // 视频页
 
     // 对应的页面处理 - 直接文件访问路由
-    router.get("/picture.html", StaticFileController::serveStaticFile);  // 图片页
-    router.get("/video.html", StaticFileController::serveStaticFile);      // 视频页
-    router.get("/judge.html", StaticFileController::serveStaticFile);      // 判断页
-    router.get("/log.html", StaticFileController::serveStaticFile);        // 登录页
+    router.get("/picture.html", StaticFileController::serveStaticFile); // 图片页
+    router.get("/video.html", StaticFileController::serveStaticFile); // 视频页
+    router.get("/judge.html", StaticFileController::serveStaticFile); // 判断页
+    router.get("/log.html", StaticFileController::serveStaticFile); // 登录页
     router.get("/register.html", StaticFileController::serveStaticFile); // 注册页
-    router.get("/logError.html", StaticFileController::serveStaticFile);   // 登录错误页
+    router.get("/logError.html", StaticFileController::serveStaticFile); // 登录错误页
     router.get("/registerError.html", StaticFileController::serveStaticFile); // 注册错误页
 
     // 静态资源文件
@@ -145,4 +145,5 @@ void HttpRouter::RegisterRoutes() {
     router.get("*.avi", StaticFileController::serveStaticFile);
     router.get("*.ico", StaticFileController::serveStaticFile);
     router.get("*.zip", StaticFileController::serveStaticFile);
+    router.get("*.svg", StaticFileController::serveStaticFile);
 }

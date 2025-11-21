@@ -2,22 +2,16 @@
 // Created by inory on 10/28/25.
 //
 
-//
-// Created by inory on 10/28/25.
-//
-
-// test_logger_perf.cpp
 #include <atomic>
-#include <chrono> // 高精度计时库
+#include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <regex>
 #include <string>
 #include <thread>
-#include <unistd.h> // getpid on POSIX
 #include <vector>
-#include "logger.h"
+#include "serika/basic/logger.h"
 
 // -------------------------- 性能测试参数配置（可按需调整）--------------------------
 const int THREADS = 16; // 并发写日志线程数

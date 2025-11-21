@@ -2,8 +2,13 @@
 // Created by inory on 10/29/25.
 //
 
-#include "input_buffer.h"
-#include "logger.h"
+#include <sys/socket.h>
+#include <cerrno>
+#include <cstring>
+#include <unistd.h>
+
+#include "webserver/async/input_buffer.h"
+#include "serika/basic/logger.h"
 
 bool InputBuffer::read_lt(int fd) {
     ssize_t n = recv(fd, write_ptr(), writable_bytes(), 0);
@@ -43,13 +48,13 @@ bool InputBuffer::read_et(int fd) {
 bool InputBuffer::check_peer_fin(int fd) {
     char buf[1];
     ssize_t n = recv(fd, buf, sizeof(buf), MSG_PEEK);
-    
+
     if (n == 0) {
         // 收到 FIN，正常关闭
         LOG_DEBUG("[InputBuffer] Peer sent FIN, graceful close complete");
         return false;
     }
-    
+
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // 对端还未发送 FIN，继续等待
@@ -59,10 +64,27 @@ bool InputBuffer::check_peer_fin(int fd) {
         LOG_DEBUG("[InputBuffer] Peer aborted connection: {}", strerror(errno));
         return false;
     }
-    
+
     // n > 0：客户端在关闭过程中又发送了数据（违反协议），忽略并关闭
     LOG_WARN("[InputBuffer] Peer sent data during graceful close, ignoring");
     return false;
+}
+
+void InputBuffer::has_written(size_t bytes) {
+    if (bytes > writable_bytes()) {
+        LOG_ERROR("[InputBuffer] Overflow in has_written: {:zu}", bytes);
+        return;
+    }
+    read_end_ += bytes;
+}
+
+void InputBuffer::retrieve(size_t len) {
+    if (len >= read_end_) {
+        clear();
+    } else {
+        std::memmove(buffer_.data(), buffer_.data() + len, read_end_ - len);
+        read_end_ -= len;
+    }
 }
 
 bool InputBuffer::read_from(int fd, bool use_edge_trigger, bool graceful_closing) {
@@ -70,7 +92,7 @@ bool InputBuffer::read_from(int fd, bool use_edge_trigger, bool graceful_closing
     if (graceful_closing) {
         return check_peer_fin(fd);
     }
-    
+
     // 正常读取
     if (readable_bytes() == buffer_.size()) {
         LOG_ERROR("[InputBuffer] Buffer full, cannot read more.");

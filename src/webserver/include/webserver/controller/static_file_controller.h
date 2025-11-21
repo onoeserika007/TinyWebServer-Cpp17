@@ -1,0 +1,37 @@
+#ifndef WEBSERVER_STATIC_FILE_CONTROLLER_H
+#define WEBSERVER_STATIC_FILE_CONTROLLER_H
+
+#include <ctime>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
+#include <string>
+#include "webserver/http_request.h"
+#include "webserver/http_response.h"
+
+class HttpRequest;
+class HttpResponse;
+
+class StaticFileController {
+public:
+    // 处理静态文件请求（供路由系统调用的接口）
+    static void serveStaticFile(const HttpRequest &req, HttpResponse &resp);
+
+    // 处理静态文件请求（内部实现）
+    static void serveFile(const std::string &filepath, HttpResponse &resp);
+
+private:
+    static constexpr const char *kDocRoot = PROJECT_ROOT_DIR "/root";
+
+    // 解析 HTTP 日期格式
+    static std::time_t parseHttpDate(const std::string &date);
+
+    // 生成 ETag
+    static std::string generateETag(const std::filesystem::file_time_type &mtime, std::uintmax_t size);
+
+    // 处理范围请求
+    static void handleRangeRequest(const std::string &rangeHeader, std::uintmax_t fileSize, const std::string &filepath,
+                                   const HttpRequest &req, HttpResponse &resp);
+};
+
+#endif // WEBSERVER_STATIC_FILE_CONTROLLER_H

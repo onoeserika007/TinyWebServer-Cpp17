@@ -57,7 +57,7 @@ public:
             return {};
 
         auto pkg_task = std::make_shared<Task>(std::bind(std::forward<F>(task), std::forward<Args>(args)...));
-        auto&& ret = pkg_task->get_future();
+        auto &&ret = pkg_task->get_future();
 
         pushTask([pkg_task](const size_t threadId) {
             // printf("Task %llu working\n", threadId);

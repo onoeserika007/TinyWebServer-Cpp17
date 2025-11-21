@@ -11,7 +11,7 @@
         "write_timeout": 30
     },
     "server": {
-        "host": "0.0.0.0",
+        "host": "127.0.0.1",
         "port": 8080,
         "use_thread_pool": false,
         "worker_threads": 24,
@@ -26,7 +26,7 @@
         "async": true,
         "flush_interval": 3,
         "roll_size": 5000000,
-        "max_queue_size": 10000,
+        "max_queue_size": 8192,
         "path": "webserver_log",
         "to_console": true,
         "to_file": true

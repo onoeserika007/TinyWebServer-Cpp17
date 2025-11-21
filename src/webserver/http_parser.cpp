@@ -3,26 +3,26 @@
 //
 
 // http_request_parser.cpp
-#include "http_parser.h"
-#include "http_request.h" // 假设已有 HttpRequest 定义
-#include <sstream>
+#include "include/webserver/http_parser.h"
 #include <iomanip>
+#include <sstream>
+#include "include/webserver/http_request.h"
 
 bool HttpRequestParser::iequals(std::string_view a, std::string_view b) {
     return a.size() == b.size() &&
-           std::equal(a.begin(), a.end(), b.begin(), [](char l, char r) {
-               return std::tolower(l) == std::tolower(r);
-           });
+           std::equal(a.begin(), a.end(), b.begin(), [](char l, char r) { return std::tolower(l) == std::tolower(r); });
 }
 
-auto HttpRequestParser::trim(std::string_view sv) -> std::string_view  {
+auto HttpRequestParser::trim(std::string_view sv) -> std::string_view {
     auto start = sv.find_first_not_of(" \t\r\n");
-    if (start == std::string_view::npos) return "";
+    if (start == std::string_view::npos)
+        return "";
     auto end = sv.find_last_not_of(" \t\r\n");
     return sv.substr(start, end - start + 1);
 }
 
-auto HttpRequestParser::split_by_first(std::string_view str, char delim) -> std::pair<std::string_view, std::string_view> {
+auto HttpRequestParser::split_by_first(std::string_view str,
+                                       char delim) -> std::pair<std::string_view, std::string_view> {
     auto pos = str.find(delim);
     if (pos == std::string_view::npos) {
         return {str, {}};
@@ -30,21 +30,21 @@ auto HttpRequestParser::split_by_first(std::string_view str, char delim) -> std:
     return {trim(str.substr(0, pos)), trim(str.substr(pos + 1))};
 }
 
-void HttpRequestParser::parse_form_data(const std::string& body, HttpRequest& req) {
+void HttpRequestParser::parse_form_data(const std::string &body, HttpRequest &req) {
     std::istringstream iss(body);
     std::string pair;
-    
+
     while (std::getline(iss, pair, '&')) {
         auto eq_pos = pair.find('=');
         if (eq_pos != std::string::npos) {
             std::string key = pair.substr(0, eq_pos);
             std::string value = pair.substr(eq_pos + 1);
-            
+
             // URL解码
-            auto url_decode = [](const std::string& src) -> std::string {
+            auto url_decode = [](const std::string &src) -> std::string {
                 std::string result;
                 result.reserve(src.size());
-                
+
                 for (size_t i = 0; i < src.size(); ++i) {
                     if (src[i] == '%' && i + 2 < src.size()) {
                         std::string hex_str = src.substr(i + 1, 2);
@@ -57,10 +57,10 @@ void HttpRequestParser::parse_form_data(const std::string& body, HttpRequest& re
                         result += src[i];
                     }
                 }
-                
+
                 return result;
             };
-            
+
             req.add_form_field(url_decode(key), url_decode(value));
         }
     }
@@ -73,7 +73,7 @@ void HttpRequestParser::reset() {
     content_length_ = 0;
 }
 
-auto HttpRequestParser::parse(std::string_view input, HttpRequest& request) -> ParseResult {
+auto HttpRequestParser::parse(std::string_view input, HttpRequest &request) -> ParseResult {
     consumed_bytes_ = 0;
     body_bytes_received_ = 0;
 
@@ -87,7 +87,8 @@ auto HttpRequestParser::parse(std::string_view input, HttpRequest& request) -> P
 
                 std::string_view line = input.substr(0, crlf);
                 auto result = parse_request_line(line, request);
-                if (result != ParseResult::OK) return result;
+                if (result != ParseResult::OK)
+                    return result;
 
                 input.remove_prefix(crlf + 2);
                 consumed_bytes_ += crlf + 2;
@@ -103,7 +104,8 @@ auto HttpRequestParser::parse(std::string_view input, HttpRequest& request) -> P
 
                 std::string_view headers = input.substr(0, headers_end);
                 auto result = parse_headers(headers, request);
-                if (result != ParseResult::OK) return result;
+                if (result != ParseResult::OK)
+                    return result;
 
                 input.remove_prefix(headers_end + 4);
                 consumed_bytes_ += headers_end + 4;
@@ -127,7 +129,8 @@ auto HttpRequestParser::parse(std::string_view input, HttpRequest& request) -> P
                 // 收到足够 body
                 std::string_view body = input.substr(0, content_length_ - body_bytes_received_);
                 auto result = parse_body(body, request);
-                if (result != ParseResult::OK) return result;
+                if (result != ParseResult::OK)
+                    return result;
 
                 consumed_bytes_ += body.size();
                 state_ = State::Done;
@@ -145,12 +148,14 @@ auto HttpRequestParser::parse(std::string_view input, HttpRequest& request) -> P
     return state_ == State::Done ? ParseResult::OK : ParseResult::INCOMPLETE;
 }
 
-ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpRequest& req) {
+ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpRequest &req) {
     auto space1 = line.find(' ');
-    if (space1 == std::string_view::npos) return ParseResult::BAD_REQUEST;
+    if (space1 == std::string_view::npos)
+        return ParseResult::BAD_REQUEST;
 
     auto space2 = line.find(' ', space1 + 1);
-    if (space2 == std::string_view::npos) return ParseResult::BAD_REQUEST;
+    if (space2 == std::string_view::npos)
+        return ParseResult::BAD_REQUEST;
 
     std::string_view method = line.substr(0, space1);
     std::string_view uri = line.substr(space1 + 1, space2 - space1 - 1);
@@ -169,7 +174,7 @@ ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpReq
     // URI 处理 - 分离URL路径和查询参数
     std::string_view path = uri;
     std::string_view query;
-    
+
     // 首先处理完整URL格式，提取路径部分
     if (path.starts_with("http://")) {
         auto slash = path.find('/', 7);
@@ -212,26 +217,27 @@ ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpReq
     if (!iequals(version, "HTTP/1.1") && !iequals(version, "HTTP/1.0")) {
         return ParseResult::BAD_REQUEST;
     }
-    
+
     req.set_version(std::string(version));
 
     return ParseResult::OK;
 }
 
-ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpRequest& req) {
+ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpRequest &req) {
     content_length_ = 0;
 
     size_t start = 0;
     while (start < headers.size()) {
         auto next = headers.find("\r\n", start);
-        std::string_view line = (next == std::string_view::npos)
-                                    ? headers.substr(start)
-                                    : headers.substr(start, next - start);
+        std::string_view line =
+                (next == std::string_view::npos) ? headers.substr(start) : headers.substr(start, next - start);
 
-        if (line.empty()) break; // 到达头部结束
+        if (line.empty())
+            break; // 到达头部结束
 
         auto [key, value] = split_by_first(line, ':');
-        if (key.empty()) continue;
+        if (key.empty())
+            continue;
 
         // 存储所有请求头
         req.add_header(std::string(key), std::string(value));
@@ -262,18 +268,18 @@ ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpReque
     return ParseResult::OK;
 }
 
-ParseResult HttpRequestParser::parse_body(std::string_view body, HttpRequest& req) {
+ParseResult HttpRequestParser::parse_body(std::string_view body, HttpRequest &req) {
     if (body.size() != content_length_) {
         return ParseResult::BAD_REQUEST;
     }
 
     req.set_body(std::string(body)); // POST 表单数据等
-    
+
     // 解析表单数据（如果Content-Type是application/x-www-form-urlencoded）
     std::string content_type = req.get_header("Content-Type");
     if (content_type.find("application/x-www-form-urlencoded") != std::string::npos) {
         parse_form_data(std::string(body), req);
     }
-    
+
     return ParseResult::OK;
 }

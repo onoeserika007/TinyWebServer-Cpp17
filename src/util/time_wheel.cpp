@@ -6,7 +6,7 @@
 
 auto TimerWheel::addTimer(Duration timeout, Callback cb, bool repeat) -> std::shared_ptr<TimerWheel::Timer> {
     std::lock_guard<std::mutex> lock(mtx_);
-    
+
     auto timer = std::make_shared<Timer>();
     timer->timeout = timeout;
     timer->cb = std::move(cb);
@@ -15,15 +15,16 @@ auto TimerWheel::addTimer(Duration timeout, Callback cb, bool repeat) -> std::sh
     size_t ticks = timeout.count() / tick_interval_.count();
     size_t slot = (current_slot_ + ticks) % slots_;
     timer->rotations = ticks / slots_;
-    timer->slot = slot;  // 记录 slot
+    timer->slot = slot; // 记录 slot
 
     wheel_[slot].push_back(timer);
     return timer;
 }
 
 void TimerWheel::refresh(std::shared_ptr<Timer> timer) {
-    if (!timer || timer->canceled) return;
-    
+    if (!timer || timer->canceled)
+        return;
+
     std::lock_guard<std::mutex> lock(mtx_);
 
     removeLocked(timer);
@@ -32,7 +33,7 @@ void TimerWheel::refresh(std::shared_ptr<Timer> timer) {
     size_t ticks = timer->timeout.count() / tick_interval_.count();
     size_t new_slot = (current_slot_ + ticks) % slots_;
     timer->rotations = ticks / slots_;
-    timer->slot = new_slot;  // 更新 slot
+    timer->slot = new_slot; // 更新 slot
 
     wheel_[new_slot].push_back(timer);
 }
@@ -40,16 +41,16 @@ void TimerWheel::refresh(std::shared_ptr<Timer> timer) {
 void TimerWheel::triggerNow(std::shared_ptr<Timer> timer) {
     if (!timer)
         return;
-    
+
     Callback cb;
     {
         std::lock_guard<std::mutex> lock(mtx_);
         removeLocked(timer);
         if (timer->cb && !timer->canceled) {
-            cb = timer->cb;  // 拷贝回调，避免在锁内执行
+            cb = timer->cb; // 拷贝回调，避免在锁内执行
         }
     }
-    
+
     // 在锁外执行回调，避免死锁
     if (cb) {
         cb();
@@ -60,7 +61,7 @@ void TimerWheel::cancel(std::shared_ptr<Timer> timer) {
     if (timer) {
         std::lock_guard<std::mutex> lock(mtx_);
         timer->canceled = true;
-        removeLocked(timer);  // 立即从 wheel 中移除
+        removeLocked(timer); // 立即从 wheel 中移除
     }
 }
 
@@ -72,12 +73,12 @@ void TimerWheel::tick() {
     if (elapsed + tolerance < tick_interval_) {
         return;
     }
-    
+
     std::vector<Callback> expired_callbacks;
-    
+
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        
+
         auto &bucket = wheel_[current_slot_];
         for (auto it = bucket.begin(); it != bucket.end();) {
             auto timer = *it;
@@ -109,9 +110,9 @@ void TimerWheel::tick() {
         current_slot_ = (current_slot_ + 1) % slots_;
         last_tick_time_ = now;
     }
-    
+
     // 在锁外执行回调，避免死锁和长时间持锁
-    for (auto& cb : expired_callbacks) {
+    for (auto &cb: expired_callbacks) {
         cb();
     }
 }
@@ -127,13 +128,12 @@ int TimerWheel::nextTimeoutMs() const {
 }
 
 void TimerWheel::removeLocked(const std::shared_ptr<Timer> &timer) {
-    auto& bucket = wheel_[timer->slot];
+    auto &bucket = wheel_[timer->slot];
     for (auto it = bucket.begin(); it != bucket.end();) {
         if (it->get() == timer.get()) {
             bucket.erase(it);
             return;
-        } else ++it;
+        } else
+            ++it;
     }
 }
-
-

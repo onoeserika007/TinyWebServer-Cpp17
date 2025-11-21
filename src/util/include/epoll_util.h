@@ -21,4 +21,4 @@ namespace EpollUtil {
     void modFd(int epoll_fd, int fd, int ev, bool edge_trig);
 } // namespace EpollUtil
 
-#endif //EPOLL_UTIL_H
+#endif // EPOLL_UTIL_H

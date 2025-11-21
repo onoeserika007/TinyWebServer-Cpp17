@@ -9,11 +9,10 @@
 #include <regex>
 #include <thread>
 #include <vector>
-#include "logger.h"
+#include "serika/basic/logger.h"
 
 int main() {
     // init logger - base name "testlog"
-    Logger::Instance().Init("testlog", true, 10000, 8192, 10 * 1024 * 1024, 0);
 
     const int THREADS = 16;
     const int MSGS_PER_THREAD = 8000;

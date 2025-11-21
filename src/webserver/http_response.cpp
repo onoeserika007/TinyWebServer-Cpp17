@@ -2,21 +2,26 @@
 // Created by inory on 10/29/25.
 //
 
-#include "http_response.h"
-#include <fstream>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include "include/webserver/http_response.h"
 #include <cstring>
-#include <sys/mman.h>   // mmap, munmap, PROT_READ, MAP_PRIVATE
+#include <fcntl.h>
+#include <fstream>
+#include <sys/mman.h> // mmap, munmap, PROT_READ, MAP_PRIVATE
+#include <sys/stat.h>
+#include <unistd.h>
 
 // MIME type 推断辅助函数
-static std::string guess_content_type(const std::string& path) {
-    if (path.ends_with(".html")) return "text/html";
-    if (path.ends_with(".css"))  return "text/css";
-    if (path.ends_with(".js"))   return "application/javascript";
-    if (path.ends_with(".png"))  return "image/png";
-    if (path.ends_with(".jpg") || path.ends_with(".jpeg")) return "image/jpeg";
+static std::string guess_content_type(const std::string &path) {
+    if (path.ends_with(".html"))
+        return "text/html";
+    if (path.ends_with(".css"))
+        return "text/css";
+    if (path.ends_with(".js"))
+        return "application/javascript";
+    if (path.ends_with(".png"))
+        return "image/png";
+    if (path.ends_with(".jpg") || path.ends_with(".jpeg"))
+        return "image/jpeg";
     return "application/octet-stream";
 }
 
@@ -28,40 +33,57 @@ void HttpResponse::set_status(HttpStatus code, std::string reason) {
     }
 
     switch (code) {
-        case HttpStatus::OK:                                reason_phrase_ = "OK"; break;
-        case HttpStatus::FOUND:                             reason_phrase_ = "Found"; break;
-        case HttpStatus::PARTIAL_CONTENT:                   reason_phrase_ = "Partial Content"; break;
-        case HttpStatus::NOT_MODIFIED:                      reason_phrase_ = "Not Modified"; break;
-        case HttpStatus::BAD_REQUEST:                       reason_phrase_ = "Bad Request"; break;
-        case HttpStatus::METHOD_NOT_ALLOWED:                reason_phrase_ = "Method Not Allowed"; break;
-        case HttpStatus::FORBIDDEN:                         reason_phrase_ = "Forbidden"; break;
-        case HttpStatus::NOT_FOUND:                         reason_phrase_ = "Not Found"; break;
-        case HttpStatus::REQUESTED_RANGE_NOT_SATISFIABLE:   reason_phrase_ = "Requested Range Not Satisfiable"; break;
-        case HttpStatus::INTERNAL_ERROR:                    reason_phrase_ = "Internal Server Error"; break;
-        default:                                            reason_phrase_ = "Unknown";
+        case HttpStatus::OK:
+            reason_phrase_ = "OK";
+            break;
+        case HttpStatus::FOUND:
+            reason_phrase_ = "Found";
+            break;
+        case HttpStatus::PARTIAL_CONTENT:
+            reason_phrase_ = "Partial Content";
+            break;
+        case HttpStatus::NOT_MODIFIED:
+            reason_phrase_ = "Not Modified";
+            break;
+        case HttpStatus::BAD_REQUEST:
+            reason_phrase_ = "Bad Request";
+            break;
+        case HttpStatus::METHOD_NOT_ALLOWED:
+            reason_phrase_ = "Method Not Allowed";
+            break;
+        case HttpStatus::FORBIDDEN:
+            reason_phrase_ = "Forbidden";
+            break;
+        case HttpStatus::NOT_FOUND:
+            reason_phrase_ = "Not Found";
+            break;
+        case HttpStatus::REQUESTED_RANGE_NOT_SATISFIABLE:
+            reason_phrase_ = "Requested Range Not Satisfiable";
+            break;
+        case HttpStatus::INTERNAL_ERROR:
+            reason_phrase_ = "Internal Server Error";
+            break;
+        default:
+            reason_phrase_ = "Unknown";
     }
 }
 
 
-void HttpResponse::add_header(std::string key, std::string value) {
-    headers_[std::move(key)] = std::move(value);
-}
+void HttpResponse::add_header(std::string key, std::string value) { headers_[std::move(key)] = std::move(value); }
 
 void HttpResponse::set_body(std::string body) {
     body_ = std::move(body);
     set_content_length(body_.size());
 }
 
-void HttpResponse::set_content_length(size_t len) {
-    headers_["Content-Length"] = std::to_string(len);
-}
+void HttpResponse::set_content_length(size_t len) { headers_["Content-Length"] = std::to_string(len); }
 
 void HttpResponse::set_file(std::string filepath) {
     file_path_ = std::move(filepath);
     file_start_ = 0;
-    
+
     // 获取文件大小
-    struct stat st{};
+    struct stat st {};
     if (stat(file_path_.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
         file_size_ = st.st_size;
     } else {
@@ -81,9 +103,7 @@ bool HttpResponse::keep_alive() const { return !close_connection_; }
 
 const std::string &HttpResponse::body() { return body_; }
 
-void HttpResponse::set_handled() {
-    handled_ = true;
-}
+void HttpResponse::set_handled() { handled_ = true; }
 
 bool HttpResponse::is_error() const {
     int code = static_cast<int>(status_code_);
@@ -95,17 +115,13 @@ bool HttpResponse::is_success() const {
     return code >= 200 && code < 300;
 }
 
-bool HttpResponse::is_handled() const {
-    return handled_ || !body_.empty() || !file_path_.empty() || is_error();
-}
+bool HttpResponse::is_handled() const { return handled_ || !body_.empty() || !file_path_.empty() || is_error(); }
 
-bool HttpResponse::has_header(const std::string& key) const {
-    return headers_.find(key) != headers_.end();
-}
+bool HttpResponse::has_header(const std::string &key) const { return headers_.find(key) != headers_.end(); }
 
 void HttpResponse::build_response() {
-    std::string status_line = "HTTP/1.1 " + std::to_string(static_cast<int>(status_code_)) +
-                              " " + reason_phrase_ + "\r\n";
+    std::string status_line =
+            "HTTP/1.1 " + std::to_string(static_cast<int>(status_code_)) + " " + reason_phrase_ + "\r\n";
 
     resp_buf_.clear();
     resp_buf_.reserve(512);
@@ -133,16 +149,16 @@ void HttpResponse::build_response() {
             headers_["Content-Type"] = guess_content_type(file_path_);
         } else {
             // 检查body是否包含HTML内容
-            if (!body_.empty() && (body_.find("<!DOCTYPE html") != std::string::npos ||
-                                   body_.find("<html") != std::string::npos)) {
+            if (!body_.empty() &&
+                (body_.find("<!DOCTYPE html") != std::string::npos || body_.find("<html") != std::string::npos)) {
                 headers_["Content-Type"] = "text/html";
-           } else {
-               headers_["Content-Type"] = "text/plain";
-           }
+            } else {
+                headers_["Content-Type"] = "text/plain";
+            }
         }
     }
 
-    for (const auto& [k, v] : headers_) {
+    for (const auto &[k, v]: headers_) {
         std::string line = k + ": " + v + "\r\n";
         resp_buf_.insert(resp_buf_.end(), line.begin(), line.end());
     }
@@ -159,7 +175,7 @@ void HttpResponse::build_response() {
 void HttpResponse::finalize() {
     // 验证文件是否存在（只验证，不打开）
     if (!file_path_.empty()) {
-        struct stat st{};
+        struct stat st {};
         if (stat(file_path_.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
             // 文件不存在或不可访问 → 返回错误页
             set_status(HttpStatus::NOT_FOUND);
@@ -172,9 +188,6 @@ void HttpResponse::finalize() {
 
     build_response();
 }
-
-// 缓存构造好的 header
-std::vector<char> resp_buf_;
 
 void HttpResponse::reset() {
     status_code_ = HttpStatus::OK;
