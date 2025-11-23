@@ -8,7 +8,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <memory>
-#include "logger.h"
+#include "serika/basic/logger.h"
 
 // RAII方式使用连接
 class MySQLConnectionGuard {

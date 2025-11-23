@@ -4,8 +4,8 @@
 
 #include "threadpool.h"
 
-#include "config_manager.h"
-#include "logger.h"
+#include "serika/basic/config_manager.h"
+#include "serika/basic/logger.h"
 
 FThreadPool::FThreadPool(const size_t threadCount) : threadCnt_(threadCount) {
     LOG_INFO("Compute ThreadPool init with {} workers", threadCount);

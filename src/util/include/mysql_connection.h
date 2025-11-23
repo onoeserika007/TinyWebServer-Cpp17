@@ -3,7 +3,7 @@
 
 #include <mysql/mysql.h>
 #include <string>
-#include "logger.h"
+#include "serika/basic/logger.h"
 
 class MySQLConnection {
 public:

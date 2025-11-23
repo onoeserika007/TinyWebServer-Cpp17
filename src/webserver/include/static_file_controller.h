@@ -4,7 +4,7 @@
 #include "http_request.h"
 #include "http_response.h"
 #include "mime_types.h"
-#include "logger.h"
+#include "serika/basic/logger.h"
 #include <string>
 #include <filesystem>
 #include <ctime>
@@ -27,20 +27,10 @@ private:
     static constexpr const char* kDocRoot = PROJECT_ROOT_DIR "/root";
 
     // 解析 HTTP 日期格式
-    static std::time_t parseHttpDate(const std::string& date) {
-        std::tm tm = {};
-        std::istringstream ss(date);
-        ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
-        return std::mktime(&tm);
-    }
+    static std::time_t parseHttpDate(const std::string& date);
 
     // 生成 ETag
-    static std::string generateETag(const std::filesystem::file_time_type& mtime, 
-                                  std::uintmax_t size) {
-        auto timePoint = std::chrono::clock_cast<std::chrono::system_clock>(mtime);
-        auto timestamp = std::chrono::system_clock::to_time_t(timePoint);
-        return "\"" + std::to_string(timestamp) + "-" + std::to_string(size) + "\"";
-    }
+    static std::string generateETag(const std::filesystem::file_time_type& mtime, std::uintmax_t size);
 
     // 处理范围请求
     static void handleRangeRequest(const std::string& rangeHeader, 
