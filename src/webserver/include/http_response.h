@@ -11,8 +11,8 @@
 #include <vector>
 
 #include <string>
-#include <map>
 #include <memory>
+#include <sys/stat.h>
 
 enum class HttpStatus {
     OK = 200,
@@ -43,6 +43,7 @@ public:
     bool is_success() const;      // 是否成功（2xx）
     bool is_handled() const;      // 是否已被拦截处理（如鉴权失败）
     bool has_header(const std::string& key) const;
+    auto get_header(const std::string &key) const -> std::string;
     bool keep_alive() const;
     const std::string& body();
 
@@ -66,7 +67,9 @@ public:
 private:
     HttpStatus status_code_ = HttpStatus::OK;
     std::string reason_phrase_;
-    std::map<std::string, std::string> headers_;
+
+    // 优化：使用 vector 代替 map（更少的分配、更快的遍历、cache 友好）
+    std::vector<std::pair<std::string, std::string>> headers_;
     std::string body_;
     bool handled_ {};
 
@@ -74,6 +77,10 @@ private:
     std::string file_path_;
     size_t file_size_ = 0;
     size_t file_start_ = 0;  // 文件范围起始位置
+
+    // file stat cache
+    struct stat cached_st_;
+    bool file_stat_valid_ {false};
 
     // 缓存构造好的 header
     std::vector<char> resp_buf_;
