@@ -10,7 +10,9 @@
 #include <string>
 #include <vector>
 
-#include <map>
+#include <string>
+#include <memory>
+#include <sys/stat.h>
 
 enum class HttpStatus {
     OK = 200,
@@ -37,22 +39,23 @@ public:
     void set_keep_alive(bool enable);
     void set_handled();
 
-    bool is_error() const; // 是否是错误响应（4xx/5xx）
-    bool is_success() const; // 是否成功（2xx）
-    bool is_handled() const; // 是否已被拦截处理（如鉴权失败）
-    bool has_header(const std::string &key) const;
+    bool is_error() const;        // 是否是错误响应（4xx/5xx）
+    bool is_success() const;      // 是否成功（2xx）
+    bool is_handled() const;      // 是否已被拦截处理（如鉴权失败）
+    bool has_header(const std::string& key) const;
+    auto get_header(const std::string &key) const -> std::string;
     bool keep_alive() const;
-    const std::string &body();
+    const std::string& body();
 
     // 构建最终要发送的内容（供 OutputBuffer 使用）
     void finalize();
 
     // 提供给 OutputBuffer 的接口（应用层只提供参数）
-    const char *response_data() const { return resp_buf_.data(); }
+    const char* response_data() const { return resp_buf_.data(); }
     size_t response_length() const { return resp_buf_.size(); }
-    std::string response() const { return std::string{resp_buf_.begin(), resp_buf_.end()}; }
-
-    const std::string &file_path() const { return file_path_; }
+    std::string response() const { return std::string {resp_buf_.begin(), resp_buf_.end()}; }
+    
+    const std::string& file_path() const { return file_path_; }
     size_t file_start() const { return file_start_; }
     size_t file_size() const { return file_size_; }
 
@@ -64,14 +67,20 @@ public:
 private:
     HttpStatus status_code_ = HttpStatus::OK;
     std::string reason_phrase_;
-    std::map<std::string, std::string> headers_;
+
+    // 优化：使用 vector 代替 map（更少的分配、更快的遍历、cache 友好）
+    std::vector<std::pair<std::string, std::string>> headers_;
     std::string body_;
-    bool handled_{};
+    bool handled_ {};
 
     // 文件相关（只存储参数，不做 I/O）
     std::string file_path_;
     size_t file_size_ = 0;
-    size_t file_start_ = 0; // 文件范围起始位置
+    size_t file_start_ = 0;  // 文件范围起始位置
+
+    // file stat cache
+    struct stat cached_st_;
+    bool file_stat_valid_ {false};
 
     // 缓存构造好的 header
     std::vector<char> resp_buf_;
@@ -84,4 +93,4 @@ private:
 };
 
 
-#endif // HTTP_RESPONSE_H
+#endif //HTTP_RESPONSE_H
