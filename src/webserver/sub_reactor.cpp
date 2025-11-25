@@ -162,7 +162,7 @@ void SubReactor::handleNewConnection() {
             LOG_INFO("[SubReactor {}] Timer timeout fd:{}", id_, fd);
             if (connections_[fd]) {
                 connections_[fd]->Destroy();
-                connections_[fd].reset();  // 释放 HttpConnection 内存
+                // connections_[fd].reset();  // 释放 HttpConnection 内存
             }
             timer_handles_.erase(fd);
             connection_count_.fetch_sub(1);
@@ -206,7 +206,7 @@ void SubReactor::handleRead(int fd) {
                     timer_handles_.erase(fd);
                 }
                 connections_[fd]->Destroy();
-                connections_[fd].reset();
+                // connections_[fd].reset();
                 connection_count_.fetch_sub(1);
             }
         }
@@ -218,7 +218,7 @@ void SubReactor::handleRead(int fd) {
             timer_handles_.erase(fd);
         }
         connections_[fd]->Destroy();
-        connections_[fd].reset();  // 释放 HttpConnection 内存
+        // connections_[fd].reset();  // 释放 HttpConnection 内存
         connection_count_.fetch_sub(1);
     }
 }
@@ -244,7 +244,7 @@ void SubReactor::handleWrite(int fd) {
             timer_handles_.erase(fd);
         }
         connections_[fd]->Destroy();
-        connections_[fd].reset();  // 释放 HttpConnection 内存
+        // connections_[fd].reset();  // 释放 HttpConnection 内存
         connection_count_.fetch_sub(1);
     }
 }
