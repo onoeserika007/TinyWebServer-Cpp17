@@ -212,6 +212,11 @@ ParseResult HttpRequestParser::parse_request_line(std::string_view line, HttpReq
     if (!iequals(version, "HTTP/1.1") && !iequals(version, "HTTP/1.0")) {
         return ParseResult::BAD_REQUEST;
     }
+
+    // keep alive
+    if (iequals(version, "HTTP/1.1")) {
+        req.set_keep_alive(true);
+    }
     
     req.set_version(std::string(version));
 
@@ -237,10 +242,19 @@ ParseResult HttpRequestParser::parse_headers(std::string_view headers, HttpReque
         req.add_header(std::string(key), std::string(value));
 
         if (iequals(key, "Connection")) {
-            if (iequals(value, "keep-alive")) {
-                req.set_keep_alive(true);
-            } else if (iequals(value, "close")) {
-                req.set_keep_alive(false);
+            if (iequals(req.version(), "HTTP/1.1")) {
+                if (iequals(value, "close")) {
+                    req.set_keep_alive(false);
+                } else {
+                    req.set_keep_alive(true);
+                }
+            } else {
+                // for HTTP/1.0 and below
+                if (iequals(value, "keep-alive")) {
+                    req.set_keep_alive(true);
+                } else {
+                    req.set_keep_alive(false);
+                }
             }
         } else if (iequals(key, "Content-Length")) {
             try {
