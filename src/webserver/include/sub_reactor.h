@@ -25,6 +25,8 @@ public:
     void start();
     
     void stop();
+
+    bool stopped() const;
     
     // 添加新连接（由 MainReactor 调用）
     void addConnection(int client_fd, sockaddr_in client_addr);

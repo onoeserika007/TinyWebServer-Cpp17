@@ -45,14 +45,14 @@ public:
     // 标记消费了 n 字节（如解析完一个请求后）
     void retrieve(size_t len) {
         if (len >= read_end_) {
-            clear();
+            reset();
         } else {
             std::memmove(buffer_.data(), buffer_.data() + len, read_end_ - len);
             read_end_ -= len;
         }
     }
 
-    void clear() { read_end_ = 0; }
+    void reset() { read_end_ = 0; }
 
     // 真正执行读操作（LT/ET 模式在此区分）
     bool read_from(int fd, bool use_edge_trigger = false, bool graceful_closing = false);

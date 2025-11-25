@@ -12,9 +12,10 @@ int main() {
         ConfigManager& config_mgr = ConfigManager::Instance();
         auto host = config_mgr.get<std::string>("server.host", "127.0.0.1");
         auto port = config_mgr.get<int>("server.port", 8080);
+        auto num_main_reactor = config_mgr.get<int>("server.num_main_reactor", 4);
         auto num_sub_reactor = config_mgr.get<int>("server.num_sub_reactor", 4);
-        EpollServer server(host, port, num_sub_reactor);
-        server.eventloop();
+        EpollServer server(host, port, num_main_reactor, num_sub_reactor);
+        server.run();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

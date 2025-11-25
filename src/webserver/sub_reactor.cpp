@@ -92,23 +92,27 @@ void SubReactor::stop() {
     if (!running_.load()) {
         return;
     }
-    
+
     running_.store(false);
-    
+
     // 唤醒 epoll_wait
     uint64_t val = 1;
     write(wakeup_fd_, &val, sizeof(val));
-    
+
     if (thread_ && thread_->joinable()) {
         thread_->join();
     }
-    
+
     LOG_DEBUG("[SubReactor {}] Stopped", id_);
+}
+
+bool SubReactor::stopped() const {
+    return !running_.load(std::memory_order_acquire);
 }
 
 void SubReactor::addConnection(int client_fd, sockaddr_in client_addr) {
     {
-        std::lock_guard<std::mutex> lock(pending_mutex_);
+        std::lock_guard lock(pending_mutex_);
         pending_connections_.push({client_fd, client_addr});
     }
     
@@ -128,7 +132,7 @@ void SubReactor::handleNewConnection() {
     // 处理所有待添加的连接
     std::queue<PendingConnection> local_queue;
     {
-        std::lock_guard<std::mutex> lock(pending_mutex_);
+        std::lock_guard lock(pending_mutex_);
         local_queue.swap(pending_connections_);
     }
     

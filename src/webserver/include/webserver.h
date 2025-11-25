@@ -13,40 +13,39 @@
 
 #include "http_conn.h"
 #include "threadpool.h"
-#include "sub_reactor.h"
 #include "time_wheel.h"
 
+class MainReactor;
+class SubReactor;
 
 class EpollServer {
 public:
-    EpollServer(const std::string &host, int port, int sub_reactor_count = 4);
+    friend MainReactor;
+    EpollServer(const std::string &host, int port, int main_reactor_count = 2, int sub_reactor_count = 3);
     ~EpollServer();
 
-    void eventloop();
+    void run();
 
 private:
-    void acceptConnections();
-
-    void initLogger();
-    void initEpoll();
-    void initRouter();
-    void initHttpPreHandlers();
-    void initHttpPostHandlers();
+    static void initRouter();
+    static void initHttpPreHandlers();
+    static void initHttpPostHandlers();
 
     // services
-    void initUserService();
+    static void initUserService();
     
     // 负载均衡：选择连接数最少的 SubReactor
-    SubReactor* selectSubReactor();
+    SubReactor* selectSubReactor(int fd);
 
 private:
-    int server_fd_;
-    int epoll_fd_;  // MainReactor 的 epoll（只监听 server_fd）
+    int server_fd_{};
+    int epoll_fd_{};  // MainReactor 的 epoll（只监听 server_fd）
     std::string host_;
     int port_;
 
     // Sub Reactors
     std::vector<std::unique_ptr<SubReactor>> sub_reactors_;
+    std::vector<std::unique_ptr<MainReactor>> main_reactors_;
     std::atomic<size_t> next_sub_reactor_{0};  // Round-Robin 索引
 
     // MainReactor 的独立 TimerWheel（虽然目前只管理 accept，但保持架构一致）

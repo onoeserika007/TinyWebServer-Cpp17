@@ -4,7 +4,7 @@
 
 #include "webserver.h"
 
-#include <assert.h>
+#include <cassert>
 
 #include "serika/basic/logger.h"
 #include "serika/basic/config_manager.h"
@@ -28,10 +28,8 @@
 #include "http_request.h"
 #include "http_response.h"
 #include "static_file_controller.h"
-
-void EpollServer::initLogger() {
-    LOG_INFO("[EpollServer] - Log Init {:d}", 114514);
-}
+#include "main_reactor.h"
+#include "sub_reactor.h"
 
 void EpollServer::initUserService() {
     // 初始化用户服务
@@ -40,53 +38,6 @@ void EpollServer::initUserService() {
         throw std::runtime_error("Failed to initialize user service");
     }
     LOG_INFO("[EpollServer] User service initialized");
-}
-
-void EpollServer::initEpoll() {
-    // 创建 server socket
-    server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd_ == -1) {
-        throw std::runtime_error("Failed to create server socket");
-    }
-
-    // 设置端口复用
-    int opt = 1;
-    if (setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        throw std::runtime_error("setsockopt SO_REUSEADDR failed");
-    }
-
-    // 设置 socket 地址信息
-    sockaddr_in server_addr{};
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port_);
-    server_addr.sin_addr.s_addr = inet_addr(host_.c_str());
-
-    // 绑定服务器地址
-    if (bind(server_fd_, (sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
-        throw std::runtime_error("Failed to bind server socket");
-    }
-
-    // 开始监听
-    if (listen(server_fd_, 10) == -1) {
-        throw std::runtime_error("Failed to listen on server socket");
-    }
-
-    // 设置 server socket 为非阻塞
-    EpollUtil::setNonBlocking(server_fd_);
-
-    // 创建 epoll 实例
-    epoll_fd_ = epoll_create1(0);
-    if (epoll_fd_ == -1) {
-        throw std::runtime_error("Failed to create epoll instance");
-    }
-
-    // 将 server socket 注册到 epoll 中
-    epoll_event ev{};
-    ev.events = EPOLLIN;
-    ev.data.fd = server_fd_;
-    if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, server_fd_, &ev) == -1) {
-        throw std::runtime_error("Failed to add server socket to epoll");
-    }
 }
 
 void EpollServer::initRouter() {
@@ -128,7 +79,7 @@ void EpollServer::initHttpPostHandlers() {
     });
 }
 
-EpollServer::EpollServer(const std::string &host, int port, int sub_reactor_count) 
+EpollServer::EpollServer(const std::string &host, int port, int main_reactor_count, int sub_reactor_count)
     : host_(host), port_(port) {
 
     auto& config_manager = ConfigManager::Instance();
@@ -139,34 +90,54 @@ EpollServer::EpollServer(const std::string &host, int port, int sub_reactor_coun
     initHttpPostHandlers();
     initRouter();
 
-    initLogger();
     initUserService();  // 初始化用户服务
-    initEpoll();
-    
+
     // 创建 SubReactors
-    LOG_INFO("[MainReactor] Creating {} SubReactors", sub_reactor_count);
+    LOG_INFO("[EpollServer] Creating {} SubReactors", sub_reactor_count);
     for (int i = 0; i < sub_reactor_count; ++i) {
         sub_reactors_.push_back(std::make_unique<SubReactor>(i));
         sub_reactors_.back()->start();
     }
-    LOG_INFO("[MainReactor] All SubReactors started");
+    LOG_INFO("[EpollServer] All SubReactors started");
+
+    // 创建 MainReactors
+    LOG_INFO("[EpollServer] Creating {} MainReactors", main_reactor_count);
+    for (int i = 0; i < main_reactor_count; ++i) {
+        main_reactors_.push_back(std::make_unique<MainReactor>(this, host, port, i));
+    }
+
+    // 启动额外的 MainReactors (除了主线程要运行的那个)
+    if (main_reactor_count > 1) {
+        for (int i = 1; i < main_reactor_count; ++i) {
+            main_reactors_[i]->start();
+        }
+        LOG_INFO("[EpollServer] Started {} additional MainReactors", main_reactor_count - 1);
+    }
+
+    // 主线程将运行第一个 MainReactor (index=0)
+    LOG_INFO("[EpollServer] Main thread will run MainReactor-0");
 }
 
 EpollServer::~EpollServer() {
+    // 停止所有 MainReactors
+    LOG_INFO("[EpollServer] Stopping all MainReactors");
+    for (auto &reactor: main_reactors_) {
+        reactor->stop();
+    }
+    main_reactors_.clear();
+
     // 停止所有 SubReactors
-    LOG_INFO("[MainReactor] Stopping all SubReactors");
-    for (auto& sub_reactor : sub_reactors_) {
-        sub_reactor->stop();
+    LOG_INFO("[EpollServer] Stopping all SubReactors");
+    for (auto &reactor: sub_reactors_) {
+        reactor->stop();
     }
     sub_reactors_.clear();
-    
-    close(server_fd_);
-    close(epoll_fd_);
-    LOG_INFO("[MainReactor] Shutdown complete");
+
+    LOG_INFO("[EpollServer] Shutdown complete");
 }
 
 // 负载均衡：选择连接数最少的 SubReactor
-SubReactor* EpollServer::selectSubReactor() {
+SubReactor* EpollServer::selectSubReactor(int fd) {
     // Round-Robin（轮询）策略
     size_t index = next_sub_reactor_.fetch_add(1) % sub_reactors_.size();
     return sub_reactors_[index].get();
@@ -182,75 +153,37 @@ SubReactor* EpollServer::selectSubReactor() {
     //     }
     // }
     // return selected;
+
+    // Hash by Fd
+    // size_t index = fd % sub_reactors_.size();
+    // return sub_reactors_[index].get();
 }
 
-// public
-void EpollServer::eventloop() {
-    std::vector<epoll_event> events(64);  // MainReactor 只监听 server_fd，不需要太多
-    
-    LOG_INFO("[MainReactor] Event loop started");
-
-    while (true) {
-        int timeout = timer_wheel_.nextTimeoutMs();
-        int num_events = epoll_wait(epoll_fd_, events.data(), events.size(), timeout);
-        if (num_events < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            LOG_ERROR("[MainReactor] epoll_wait failed: {}", strerror(errno));
-            break;
-        }
-
-        // MainReactor 只处理 accept
-        for (int i = 0; i < num_events; ++i) {
-            int fd = events[i].data.fd;
-
-            if (fd == server_fd_) {
-                acceptConnections();
-            }
-        }
-        
-        // MainReactor 的独立定时器 tick（当前无定时任务，但保持架构一致）
-        timer_wheel_.tick();
+void EpollServer::run() {
+    if (main_reactors_.empty()) {
+        LOG_ERROR("[EpollServer] No MainReactor to run");
+        return;
     }
-    
-    LOG_INFO("[MainReactor] Event loop stopped");
-}
 
-void EpollServer::acceptConnections() {
-    while (true) {
-        sockaddr_in client_addr{};
-        socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(server_fd_, (sockaddr *) &client_addr, &client_len);
-        if (client_fd == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break;
-            }
+    LOG_INFO("[EpollServer] Main thread starting MainReactor-0 event loop");
+    main_reactors_[0]->running_ = true;
+    main_reactors_[0]->stopped_ = false;
+    main_reactors_[0]->run();
 
-            if (errno == EMFILE) {
-                LOG_ERROR("[MainReactor] No more fd available: errno={}, error:{}", errno, strerror(errno));
-                break;
-            }
+    // 当主线程的 MainReactor 退出后，停止所有其他 Reactors
+    LOG_INFO("[EpollServer] MainReactor-0 stopped, initiating shutdown");
 
-            LOG_ERROR("[MainReactor] accept failed: errno={}, error:{}", errno, strerror(errno));
-            return;
+    // 停止其他 MainReactors
+    for (size_t i = 1; i < main_reactors_.size(); ++i) {
+        if (!main_reactors_[i]->stopped_) {
+            main_reactors_[i]->stop();
         }
+    }
 
-        // 记录客户端 IP（调试用）
-        {
-            auto client_ip = std::string(inet_ntoa(client_addr.sin_addr));
-            if (!client_ips_.contains(client_ip)) {
-                client_ips_.insert(client_ip);
-                LOG_INFO("[MainReactor] New client IP: {}", client_ip);
-            }
+    // 停止所有 SubReactors
+    for (auto& reactor : sub_reactors_) {
+        if (!reactor->stopped()) {
+            reactor->stop();
         }
-        
-        // 选择一个 SubReactor 并分发连接
-        SubReactor* reactor = selectSubReactor();
-        reactor->addConnection(client_fd, client_addr);
-        
-        LOG_DEBUG("[MainReactor] Accepted fd:{}, dispatched to SubReactor", client_fd);
     }
 }
-
-// handleRead 和 handleWrite 已移至 SubReactor，MainReactor 不再需要

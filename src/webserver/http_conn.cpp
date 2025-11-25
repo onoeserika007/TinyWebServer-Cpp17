@@ -42,7 +42,7 @@ void HttpConnection::Init(int fd, int epoll_fd, sockaddr_in client_addr) {
 }
 
 void HttpConnection::Init() {
-    read_buffer_.clear();
+    read_buffer_.reset();
     write_buffer_.reset();
     parser_.reset();
     response_.reset(); // 确保HttpResponse也被正确初始化
