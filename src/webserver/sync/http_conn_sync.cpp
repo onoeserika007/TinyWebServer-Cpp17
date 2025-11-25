@@ -23,6 +23,9 @@
 #include "webserver/sync/http_conn_sync.h"
 
 bool HttpConnectionSync::use_sendfile_ = false;
+std::atomic<uint64_t> HttpConnectionSync:: read_times;
+std::atomic<uint64_t> HttpConnectionSync:: write_times;
+std::atomic<uint64_t> HttpConnectionSync:: failed_reads_;
 
 void HttpConnectionSync::Init(int fd, sockaddr_in client_addr) {
 
@@ -34,7 +37,7 @@ void HttpConnectionSync::Init(int fd, sockaddr_in client_addr) {
 }
 
 void HttpConnectionSync::Init() {
-    read_buffer_.reset();
+    // read_buffer_.reset();
     write_buffer_.reset();
     parser_.reset();
     response_.reset();
@@ -56,11 +59,6 @@ void HttpConnectionSync::Destroy() {
     // 直接关闭（让内核处理 FIN）
     // 如果还有未发送的数据，内核会先发送完再发送 FIN
     // 最后Close
-    if (fiber::IO::close(fd) < 0) {
-        LOG_ERROR("Closing error: {}, fd:{}", strerror(errno), fd);
-    } else {
-        LOG_DEBUG("Close success, fd:{}", fd);
-    }
 }
 
 void HttpConnectionSync::Stop() {
@@ -112,6 +110,7 @@ bool HttpConnectionSync::PostHandlersCheck(const HttpRequest &request, HttpRespo
     return true;
 }
 
+
 void HttpConnectionSync::ReceiveLoop(MessageCallback callback) {
     while (running_) {
         // read message
@@ -120,9 +119,14 @@ void HttpConnectionSync::ReceiveLoop(MessageCallback callback) {
         if (!read_success) {
             // should close
             // LOG_INFO("Received fin from client, gracefully closing done.");
+            // ++failed_reads_;
+            // LOG_INFO("Failed Reads: {}, fd: {}", failed_reads_.load(), conn_fd_);
             callback(true);
             continue;
         }
+
+        auto reads = read_times.fetch_add(1) + 1;
+        LOG_DEBUG("Read Times: {}, fd: {}", reads, conn_fd_);
 
         if (!ProcessHttp()) {
             continue;

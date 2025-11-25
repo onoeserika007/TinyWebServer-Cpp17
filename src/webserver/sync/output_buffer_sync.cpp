@@ -17,6 +17,8 @@
 #include "io_fiber.h"
 #include "webserver/sync/output_buffer_sync.h"
 
+std::atomic<uint64_t> OutputBufferSync::send_times_ {0};
+
 void OutputBufferSync::reset() {
     unmap_if_needed();
     close_file_if_needed();
@@ -198,7 +200,14 @@ void OutputBufferSync::write_to(int fd) {
 
         bytes_have_sent_ += n;
         bytes_to_send_ -= n;
+
+        if (bytes_to_send_ > 0) {
+            throw std::runtime_error("Header sync write not complete");
+        }
     }
+
+    auto sends = send_times_.fetch_add(1) + 1;
+    LOG_DEBUG("Sent times: {}, fd: {}", sends, fd);
 }
 
 void OutputBufferSync::unmap_if_needed() {

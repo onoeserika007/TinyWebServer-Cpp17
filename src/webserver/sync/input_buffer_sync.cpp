@@ -6,14 +6,13 @@
 #include "io_fiber.h"
 #include "serika/basic/logger.h"
 
-
 bool InputBufferSync::check_peer_fin(int fd) {
     char buf[1];
     ssize_t n = fiber::IO::recv(fd, buf, sizeof(buf), MSG_PEEK).value_or(-1);
 
     if (n == 0) {
         // 收到 FIN，正常关闭
-        LOG_DEBUG("[InputBufferSync] Peer sent FIN, graceful close complete");
+        // LOG_INFO("[InputBufferSync] Peer sent FIN, graceful close complete");
         return false;
     }
 
@@ -75,9 +74,9 @@ bool InputBufferSync::read_from(int fd, bool use_edge_trigger, bool graceful_clo
         return true;
     }
 
-    // if (n == 0) {
-    //     LOG_INFO("read_from recv 0, closing, errno:{}, err:{}", errno,strerror(errno));
-    // }
+    if (n == 0) {
+        LOG_DEBUG("fd:{}, read_from recv 0, closing, errno:{}, err:{}, closing: {}", fd, errno,strerror(errno), graceful_closing);
+    }
 
     return n == 0 ? false : (errno == EAGAIN || errno == EWOULDBLOCK);
 }

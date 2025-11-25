@@ -5,6 +5,7 @@
 #ifndef INPUT_BUFFER_SYNC_H
 #define INPUT_BUFFER_SYNC_H
 
+#include <atomic>
 #include <vector>
 
 class InputBufferSync {

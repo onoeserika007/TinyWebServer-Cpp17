@@ -67,6 +67,8 @@ private:
 
     bool use_sendfile_ = false; // true=sendfile, false=mmap
     bool close_connection_ = false;
+
+    static std::atomic<uint64_t> send_times_;
 };
 
 #endif //OUTPUT_BUFFER_SYNC_H

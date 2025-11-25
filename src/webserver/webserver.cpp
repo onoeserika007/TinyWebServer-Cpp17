@@ -170,6 +170,9 @@ void EpollServer::acceptLoop() {
         }
 
         int client_fd = result.value();
+        // assert(!client_fds_.contains(client_fd) && "Duplicate client conn fd.");
+        // client_fds_.insert(client_fd);
+
         if (client_fd < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
@@ -183,6 +186,9 @@ void EpollServer::acceptLoop() {
             LOG_ERROR("[EpollServer] accept failed: errno={}, error:{}", errno, strerror(errno));
             continue;
         }
+
+        ++connection_num_;
+        // LOG_DEBUG("Connection Num: {}", connection_num_.load());
 
         // 记录客户端 IP（调试用）
         {
@@ -198,6 +204,7 @@ void EpollServer::acceptLoop() {
             connections_[client_fd] = std::make_unique<HttpConnectionSync>();
         }
 
+        // LOG_INFO("Init new connection on fd:{}", client_fd);
         connections_[client_fd]->Init(client_fd, client_addr);
 
         // 定时器资源只在一个连接上下文中进行管理
@@ -228,8 +235,15 @@ void EpollServer::acceptLoop() {
 
             // ReceiveLoop exit by destroy internal
             server->connections_[fd]->Destroy();
-            // LOG_INFO("Connection on fd:{} destroyed.", fd);
-        });
+            server->connections_[fd].reset();
+            if (fiber::IO::close(fd) < 0) {
+                LOG_ERROR("Closing error: {}, fd:{}", strerror(errno), fd);
+            } else {
+                LOG_DEBUG("Close success, fd:{}", fd);
+            }
+
+            LOG_DEBUG("Connection on fd:{} destroyed.", fd);
+        }, client_fd);
     }
 
     LOG_INFO("[EpollServer] Event loop stopped");

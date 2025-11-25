@@ -54,6 +54,8 @@ private:
 
     // Debug
     std::unordered_set<std::string> client_ips_;
+    std::unordered_set<int> client_fds_;
+    std::atomic<uint64_t> connection_num_ = 0 ;
 };
 
 

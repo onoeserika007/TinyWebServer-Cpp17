@@ -69,6 +69,11 @@ private:
     bool running_ {false}; // is running, for accept loop exiting
     bool static use_sendfile_; // true=sendfile, false=mmap+writev
 
+    // Debug
+    static std::atomic<uint64_t> read_times;
+    static std::atomic<uint64_t> failed_reads_;
+    static std::atomic<uint64_t> write_times;
+
 public:
     void static set_use_sendfile(bool enable) { use_sendfile_ = enable; }
     bool static use_sendfile() { return use_sendfile_; }
