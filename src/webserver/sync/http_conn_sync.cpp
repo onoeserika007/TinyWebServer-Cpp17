@@ -31,7 +31,6 @@ void HttpConnectionSync::Init(int fd, sockaddr_in client_addr) {
     use_edge_trig_ = true;
 
     Init();
-    running_ = true;
 }
 
 void HttpConnectionSync::Init() {
@@ -40,7 +39,7 @@ void HttpConnectionSync::Init() {
     parser_.reset();
     response_.reset();
     closing_ = false;
-    running_ = false;
+    running_ = true;
 }
 
 void HttpConnectionSync::Destroy() {
@@ -136,9 +135,9 @@ void HttpConnectionSync::ReceiveLoop(MessageCallback callback) {
                 callback(false);
             } else {
                 // LOG_INFO("Start gracefully closing, sending FIN");
-                // BeginGracefulClose();
+                BeginGracefulClose();
                 // 试试主动关闭呢
-                callback(true);
+                // callback(true);
             }
 
         } catch (const std::exception &e) {

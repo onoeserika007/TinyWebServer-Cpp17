@@ -6,6 +6,7 @@
 #define HTTP_REQUEST_H
 
 #include <string>
+#include <vector>
 #include <unordered_map>
 
 class HttpRequest {
@@ -36,14 +37,31 @@ public:
     void set_version(std::string version) { version_ = std::move(version); }
     const std::string &version() const { return version_; }
 
-    // 获取所有请求头
-    const std::unordered_map<std::string, std::string> &headers() const { return headers_; }
     // 设置请求头
-    void add_header(std::string key, std::string value) { headers_[std::move(key)] = std::move(value); }
+    void add_header(std::string key, std::string value) {
+        for (auto &kv : headers_) {
+            if (kv.first == key) {
+                kv.second = std::move(value);   // 覆盖已有 key
+                return;
+            }
+        }
+        headers_.emplace_back(std::move(key), std::move(value));  // 新插入
+    }
+
     // 获取特定请求头，如果不存在返回空字符串
     std::string get_header(const std::string &key) const {
-        auto it = headers_.find(key);
-        return it != headers_.end() ? it->second : "";
+        for (auto &kv : headers_) {
+            if (kv.first == key) return kv.second;
+        }
+        return "";
+    }
+
+    std::string& get_header_ref(const std::string &key) {
+        static std::string null_str;
+        for (auto& h : headers_) {
+            if (h.first == key) return h.second;
+        }
+        return null_str;
     }
 
     // 表单数据相关方法
@@ -68,7 +86,7 @@ private:
     bool keep_alive_ = false;
     size_t content_length_ = 0;
     bool cgi_ = false;
-    std::unordered_map<std::string, std::string> headers_;
+    std::vector<std::pair<std::string, std::string>> headers_;
     std::unordered_map<std::string, std::string> form_fields_; // 存储解析后的表单字段
 };
 

@@ -3,6 +3,7 @@
 //
 
 #include <arpa/inet.h>
+#include <signal.h>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
@@ -14,17 +15,18 @@
 #include <unistd.h>
 
 
+#include "fiber.h"
+#include "io_fiber.h"
+#include "scheduler.h"
 #include "serika/basic/config_manager.h"
 #include "serika/basic/logger.h"
 #include "user_service.h"
-#include "webserver/webserver.h"
-#include "fiber.h"
-#include "io_fiber.h"
 #include "webserver/controller/static_file_controller.h"
 #include "webserver/http_request.h"
 #include "webserver/http_response.h"
 #include "webserver/http_router.h"
 #include "webserver/sync/http_conn_sync.h"
+#include "webserver/webserver.h"
 
 void EpollServer::initLogger() { LOG_INFO("[EpollServer] - Log Init {:d}", 114514); }
 
@@ -115,7 +117,8 @@ EpollServer::EpollServer(const std::string &host, int port, int sub_reactor_coun
 
     // connections
     connections_.resize(MAX_FD);
-    timer_handles_.resize(MAX_FD);
+
+    signal(SIGPIPE, SIG_IGN);
 
     initHttpPreHandlers();
     initHttpPostHandlers();
@@ -149,8 +152,6 @@ void EpollServer::shutdown() {
 
 // public
 void EpollServer::acceptLoop() {
-
-    auto& timer_mgr = fiber::TimerWheel::getInstance();
 
     LOG_INFO("[EpollServer:acceptLoop] start loop");
     while (running_) {
@@ -199,36 +200,28 @@ void EpollServer::acceptLoop() {
 
         connections_[client_fd]->Init(client_fd, client_addr);
 
-        // 设置超时定时器（使用独立的 TimerWheel）
-        if (timer_handles_[client_fd]) {
-            timer_mgr.cancel(timer_handles_[client_fd]);
-        }
-
-        timer_handles_[client_fd] = timer_mgr.addTimer(15000, [server = shared_from_this(), fd = client_fd]() {
-            LOG_INFO("[EpollServer] Timer timeout fd:{}", fd);
-            if (server->connections_[fd]) {
-                server->connections_[fd]->Stop();
-            }
-            server->timer_handles_[fd].reset();
-        });
-
+        // 定时器资源只在一个连接上下文中进行管理
         fiber::Fiber::go([server = shared_from_this(), fd = client_fd]() {
+            auto& timer_mgr = fiber::Scheduler::getThreadLocalTimerManager();
+            auto timer = timer_mgr.addTimer(15000, [server, fd]() {
+                LOG_DEBUG("[EpollServer] Timer timeout fd:{}", fd);
+                if (server->connections_[fd]) {
+                    server->connections_[fd]->Stop();
+                }
+            });
 
             server->connections_[fd]->ReceiveLoop([&](const bool should_close) {
-                auto& timer_mgr = fiber::TimerWheel::getInstance();
-                auto timer = server->timer_handles_[fd];
 
                 if (should_close) {
                     server->connections_[fd]->Stop();
                     if (timer) {
                         timer_mgr.cancel(timer);
-                        server->timer_handles_[fd].reset();
                     }
                 } else {
                     // 仅仅刷新资源
                     server->connections_[fd]->Init();
                     if (timer) {
-                        server->timer_handles_[fd] = timer_mgr.refresh(timer);
+                        timer = timer_mgr.refresh(timer);
                     }
                 }
             });

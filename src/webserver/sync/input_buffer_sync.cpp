@@ -75,9 +75,9 @@ bool InputBufferSync::read_from(int fd, bool use_edge_trigger, bool graceful_clo
         return true;
     }
 
-    if (n == 0) {
-        LOG_INFO("read_from recv 0, closing.");
-    }
+    // if (n == 0) {
+    //     LOG_INFO("read_from recv 0, closing, errno:{}, err:{}", errno,strerror(errno));
+    // }
 
     return n == 0 ? false : (errno == EAGAIN || errno == EWOULDBLOCK);
 }

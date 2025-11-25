@@ -40,8 +40,8 @@ void StaticFileController::serveStaticFile(const HttpRequest &req, HttpResponse 
     }
 
     // 处理部分内容请求（Range）
-    if (auto it = req.headers().find("Range"); it != req.headers().end()) {
-        handleRangeRequest(it->second, fileSize, filepath, req, resp);
+    if (auto value = req.get_header("Range"); !value.empty()) {
+        handleRangeRequest(value, fileSize, filepath, req, resp);
         return;
     }
 
@@ -63,8 +63,8 @@ void StaticFileController::serveStaticFile(const HttpRequest &req, HttpResponse 
         resp.add_header("Last-Modified", timeBuf);
 
         // 处理 If-Modified-Since
-        if (auto it = req.headers().find("If-Modified-Since"); it != req.headers().end()) {
-            std::time_t ifModifiedSince = parseHttpDate(it->second);
+        if (auto value = req.get_header("If-Modified-Since"); !value.empty()) {
+            std::time_t ifModifiedSince = parseHttpDate(value);
             if (ifModifiedSince >= lastModifiedTime) {
                 resp.set_status(HttpStatus::NOT_MODIFIED);
                 return;
@@ -76,8 +76,8 @@ void StaticFileController::serveStaticFile(const HttpRequest &req, HttpResponse 
         resp.add_header("ETag", etag);
 
         // 处理 If-None-Match
-        if (auto it = req.headers().find("If-None-Match"); it != req.headers().end()) {
-            if (it->second == etag) {
+        if (auto value = req.get_header("If-None-Match"); !value.empty()) {
+            if (value == etag) {
                 resp.set_status(HttpStatus::NOT_MODIFIED);
                 return;
             }

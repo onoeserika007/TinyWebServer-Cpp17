@@ -2,7 +2,7 @@
 // Created by inory on 11/20/25.
 //
 
-
+// #define NDEBUG
 #include <iostream>
 #include <csignal>
 

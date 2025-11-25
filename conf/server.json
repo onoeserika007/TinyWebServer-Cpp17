@@ -12,7 +12,7 @@
     },
     "server": {
         "host": "127.0.0.1",
-        "port": 8080,
+        "port": 8082,
         "use_thread_pool": false,
         "worker_threads": 24,
         "max_connections": 10000,
@@ -25,10 +25,15 @@
         "visible_level": "info",
         "async": true,
         "flush_interval": 3,
-        "roll_size": 5000000,
+        "roll_size": 50000000,
         "max_queue_size": 8192,
         "path": "webserver_log",
         "to_console": true,
         "to_file": true
+    },
+    "fiber": {
+        "num_io_consumer": 6,
+        "num_compute_consumer": 8,
+        "num_consumer": 5
     }
 }

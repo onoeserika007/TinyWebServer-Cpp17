@@ -52,9 +52,6 @@ private:
     static constexpr int MAX_FD = 65536;
     std::vector<std::unique_ptr<HttpConnectionSync>> connections_;
 
-    // timers
-    std::vector<std::shared_ptr<fiber::TimerNode>> timer_handles_;
-
     // Debug
     std::unordered_set<std::string> client_ips_;
 };
